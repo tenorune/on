@@ -15,9 +15,9 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Ten open, thirteen closed — **G4 and M12 are the newest closed items**
-(2026-08-03, the first two of the queue's six) — and as of 2026-08-03 **every
-open item has been ruled**: four still to DO, five WON'T FIX, one (G3) parked. The rulings are stamped in
+Eight open, fifteen closed — **G4, M12, M5 and M4 are the newest closed items**
+(2026-08-03, four of the queue's six) — and as of 2026-08-03 **every open item
+has been ruled**: two still to DO (M8, M3), five WON'T FIX, one (G3) parked. The rulings are stamped in
 the Weight column below and on each entry, and the build order is in
 "The next session's queue" directly under this table. **Read the queue rather
 than this table if you are here to work.**
@@ -84,8 +84,8 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | **WON'T FIX** (operator, 2026-08-03) |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:88` | **WON'T FIX** (operator, 2026-08-03) |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | **DO** (operator, 2026-08-03) |
-| **M4** | Non-`EEXIST` rethrow untested | `ops/audit.js:167` | **DO** (operator, 2026-08-03) |
-| **M5** | Audit filename retry loop has no attempt cap | `ops/audit.js:181-189` | **DO** (operator, 2026-08-03) |
+| **M4** | ~~Non-`EEXIST` rethrow untested~~ | `ops/audit.js` | **CLOSED** (`f7fa67d`) — two cases, plus one for an error carrying no code at all |
+| **M5** | ~~Audit filename retry loop has no attempt cap~~ | `ops/audit.js` | **CLOSED** (`f7fa67d`) — capped at 100, fails closed with the cause named |
 | **M6** | Approvals have no TTL, and detail-view overwrites a pending one | `ops/server.js:462,664` | **WON'T FIX** (operator, 2026-08-03) |
 | **M7** | Production banner does not name the project inline | `ops/server.js:690-692` | **WON'T FIX** (operator, 2026-08-03) |
 | **M8** | `adoptGroupNames` is unreachable from the browser | `ops/panel.html:207,228` | **DO** (operator, 2026-08-03) |
@@ -101,7 +101,7 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 Every open item has been ruled on. **Six to DO, five WON'T FIX, one parked.**
 Nothing here is unruled, so a session picking this up does not need to
 re-litigate any of it — build the six, in whatever order suits, and leave the
-rest alone. **G4 and M12 are done (2026-08-03); four remain: M8, M5, M4, M3.** A ruling is the operator's; if you think one is wrong, say so
+rest alone. **G4, M12, M5 and M4 are done (2026-08-03); two remain: M8, M3.** A ruling is the operator's; if you think one is wrong, say so
 before working it rather than working it anyway.
 
 ### DO — in rough order of value
@@ -111,12 +111,12 @@ before working it rather than working it anyway.
 | ~~**G4**~~ **DONE** | ~~Teach the **purge preview** to name the cascades it will trigger, so the operator sees them **before** approving.~~ **Shipped: `plan.cascades` on all four destructive previews, compared between preview and execute. See G4's entry below.** | `ops/purge.js`, `ops/panel.html`, the preview plan shape | The item names two options; this is the one chosen, and its own entry calls it "the cheaper half [that] would have turned this from a discovery into a line of preview text". **Do NOT** take the other option (have the pre-image capture cascades) — that means modelling client behaviour in the panel and is probably the wrong trade. The known cascade is the owned-group one: purging a group's OWNER nulls `groups/{gid}` wholesale, and every other member's client then deletes its own `users/{member}/groups/{gid}` entry (`js/groupNav.ts:250-258`, `js/groupContext.ts:1499-1508`). The preview must say so; it is a *prediction* of client behaviour, so word it as one, not as a write-set line. |
 | ~~**M12**~~ **DONE** | ~~Tie the G6 `presence/code` predicate to `followeeExists` so the two cannot drift.~~ **Shipped: a jest guard that derives the node path from the rules predicate. See M12's row below.** | `js/db/social.ts`, `database.rules.json`, `tests/db.test.js` | Two routes in its entry: a rules test that reads the predicate's node path out of `database.rules.json` and asserts `followeeExists` probes the same one, or hoist the path to a `shared/` constant both sides consume. The second is real work — the rules file is JSON and cannot import — so cost the first honestly before reaching for it. Note this un-mirrors for **every** client caller at once if it drifts: G9's `rotateCode` filter and I1's `js/followRequests.ts` check both route through `followeeExists`. |
 | **M8** | Make `adoptGroupNames` reachable from the browser. | `ops/panel.html:207,228` | `server.js:623` already accepts it and `merge.js:76,230` already implements it — this is the UI half only. Today both merge buttons post `{loserUid, survivorUid}` (+`telegramRepoint`), so a `group-member-collision` previewed from the browser always resolves "survivor's record kept". Read the M8 row for why the per-group name **carry** has to come from a loser-only group; the fixture seeds one of each. |
-| **M5** | Cap the audit filename-collision retry. | `ops/audit.js:182` | `for (;;)` appending `-2`, `-3`, … with no bound. It fails safe today (terminates as soon as one name is free), so this is insurance: pick a cap, and make exceeding it fail closed with a named cause, matching the module's existing style. |
-| **M4** | Test the non-`EEXIST` rethrow. | `ops/audit.js:167` | Coverage only — the branch is already correct. Same family as R3, which was also missing coverage rather than a defect and whose two tests passed first run. The fs is trivially mockable. |
+| ~~**M5**~~ **DONE** | ~~Cap the audit filename-collision retry.~~ **Shipped (`f7fa67d`): 100 attempts, then a named refusal.** | `ops/audit.js` | `for (;;)` appending `-2`, `-3`, … with no bound. It fails safe today (terminates as soon as one name is free), so this is insurance: pick a cap, and make exceeding it fail closed with a named cause, matching the module's existing style. |
+| ~~**M4**~~ **DONE** | ~~Test the non-`EEXIST` rethrow.~~ **Shipped (`f7fa67d`), same commit as M5.** | `ops/audit.js` | Coverage only — the branch is already correct. Same family as R3, which was also missing coverage rather than a defect and whose two tests passed first run. The fs is trivially mockable. |
 | **M3** | Take the canvas-key split from the shared helper instead of inlining it. | `ops/integrity.js:190` | `key.split('_')` written inline. Read-only report module, so a wrong split misreports rather than mis-deletes — but the shared-helper rule exists because one concept transcribed into several places caused three separate defects on this build (see "Why the enumerator rule exists"). |
 
-**M4 and M5 are both in `ops/audit.js` and should ride one commit.** M3 is
-independent and small.
+**M4 and M5 were both in `ops/audit.js` and rode one commit** (`f7fa67d`), as
+planned. M3 is independent and small.
 
 ### WON'T FIX — ruled, do not work these
 
@@ -1029,8 +1029,8 @@ rather than letting the section heading stand as a verdict.
 | **M1** | `ops/types.d.ts:26-38` | Snapshot nodes are typed `Record<string, any>` and never optional, so "the node is absent" and "the node is present but empty" are the same type. | **WON'T FIX** (2026-08-03). Consumers do not trust the type here — they use a runtime key-count check. Tightening it would be a type-level improvement over code that already guards at runtime. |
 | **M2** | `ops/project.js:88` | The detail lookup calls `buildRows(...)` — which builds and sorts *every* row — and then `.find()`s the one uid it wants. | **WON'T FIX** (2026-08-03). O(n log n) for a single-account read, on an operator tool with one user and an account list that fits in memory. Real, and invisible at this scale. |
 | **M3** | `ops/integrity.js:190` | The canvas-key split (`key.split('_')`) is written inline rather than taken from the shared helper. | **DO** (2026-08-03). It is the read-only report module: a wrong split misreports, it cannot mis-delete. The shared-helper rule earns its severity from write paths. |
-| **M4** | `ops/audit.js:167` | The non-`EEXIST` rethrow has no test, though the fs is trivially mockable. | **DO** (2026-08-03). Fails closed with a named cause. Same family as R3 below, which is the one worth doing first. |
-| **M5** | `ops/audit.js:181-189` | The filename-collision retry is `for (;;)` with no attempt cap — it appends `-2`, `-3`, … indefinitely. | **DO** (2026-08-03). It terminates as soon as one name is free, and the loop only spins on genuine collisions in a directory one operator writes to. A cap would be cheap insurance rather than a fix. |
+| **M4** — **CLOSED** | `ops/audit.js` | The non-`EEXIST` rethrow has no test, though the fs is trivially mockable. | **CLOSED (2026-08-03, `f7fa67d`).** Two cases: an EACCES propagates as the SAME error object with exactly one attempt, and an error carrying no `code` at all takes that path too — "unrecognised" must mean rethrow, not retry. Verified by removing the branch, which turns both red: the swallowed error is then retried until M5's new cap stops it. |
+| **M5** — **CLOSED** | `ops/audit.js` | The filename-collision retry is `for (;;)` with no attempt cap — it appends `-2`, `-3`, … indefinitely. | **CLOSED (2026-08-03, `f7fa67d`).** Capped at 100, then a refusal naming the base it was reserving, the last candidate, and the three conditions that actually produce it (another writer in the directory, a clock that stopped, an EEXIST raised for some other reason) — the shape `fsyncDir` already uses. 100 is far above any honest run: a collision needs the same millisecond, op AND uid. Insurance, as ruled — the loop still terminates on its own for genuine collisions, and a case pins that five in a row still find free names, since a cap that broke ordinary collision handling would be worse than the loop it replaced. |
 | **M6** | `ops/server.js:462,664` | Approvals live in a `Map` with no TTL, and `GET /api/detail` issues a nonce through the same `approvals.set(uid, …)` that previews use — so opening a detail view **overwrites a pending approval** for that uid. | **WON'T FIX** (2026-08-03). It fails toward refusal, never toward an unapproved write: the overwriting nonce carries `approved: null`, so an execute against it is rejected and the operator previews again. Annoying, not dangerous. |
 | **M7** | `ops/server.js:690-692` | The production banner does not name the project inline. | **WON'T FIX** (2026-08-03). The startup line immediately above it does (`project=<id>`). Duplication, not absence. |
 | **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | **DO** (2026-08-03). It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |

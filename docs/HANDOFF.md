@@ -12,8 +12,8 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 ## What's next
 
 **THERE IS A BUILD QUEUE, AND IT IS THE FIRST THING TO READ.** Every open item
-was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **G4 and M12
-are DONE; four remain (M8, M5, M4, M3).** The queue lives in
+was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **G4, M12, M5
+and M4 are DONE; two remain (M8, M3).** The queue lives in
 `docs/operator-panel-followups.md` under **"The next session's queue"**,
 directly beneath the at-a-glance table, with what to read before starting each:
 
@@ -22,8 +22,8 @@ directly beneath the at-a-glance table, with what to read before starting each:
 | ~~**G4**~~ | ~~name the cascades the purge preview will trigger~~ — **DONE, `33d89ae`**: `plan.cascades` on all four destructive previews, compared preview-to-execute | the FIRST of that entry's two candidates was the one built — **not** the pre-image one |
 | ~~**M12**~~ | ~~tie the G6 `presence/code` predicate to `followeeExists`~~ — **DONE**: a jest guard derives the node path from the rules `.validate` and pins `followeeExists` to it | the `shared/` constant route was NOT taken — the rules file is JSON and cannot import |
 | **M8** | make `adoptGroupNames` reachable from the browser | UI half only; server + merge already exist |
-| **M5** | cap the audit filename-collision retry | rides one commit with M4 |
-| **M4** | test the non-`EEXIST` rethrow | coverage; the branch is already correct |
+| ~~**M5**~~ | ~~cap the audit filename-collision retry~~ — **DONE**: 100 attempts, then a refusal naming the cause | rode one commit with M4, as planned |
+| ~~**M4**~~ | ~~test the non-`EEXIST` rethrow~~ — **DONE**: two cases, plus one for an error with no `code` at all | the branch was already correct; the tests were the item |
 | **M3** | take the canvas-key split from the shared helper | |
 
 **WON'T FIX: G1, M1, M2, M6, M7.** Ruled, with the reason restated on each — not
@@ -88,13 +88,14 @@ re-derive them.
 **G4 is DONE** (`33d89ae` — the purge preview names its cascades; the first of
 its two candidates, not the second). **M12 is DONE** too — the rules predicate
 and `followeeExists` are now tied by a test that derives one from the other.
-**Still to DO: M8, M5, M4, M3.**
+**M5 and M4 are DONE** too, in one
+commit as the queue planned. **Still to DO: M8, M3.**
 **WON'T FIX: G1, M1, M2,
 M6, M7** — ruled, not open questions; raise it before working one, not after.
 **G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
 unruled, so a session picking it up does not need to re-litigate any of it.
 
-Everything else in that file (**G1**, **M1–M8**) is a
+Everything else in that file (**G1**, **M1–M3**, **M6–M8**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
 write? **M10 and M11 are now CLOSED** — both were G6-descended, and closing
@@ -232,9 +233,10 @@ not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
 landed; this file was the stale one. Nothing else is owed on this branch.
 
 **Branch status (2026-08-03, LATEST): `claude/knockknock-operator-queue-xycpd8`
-— the build queue's first two items, NOT merged.** Cut from `dev` at `b02dc47`:
-`33d89ae` (G4's code + tests), `8d8b128` (G4's docs), `f730f34` (M12's guard)
-and this docs update. **Nothing is merged and no PR was opened** — `dev` is the
+— four of the build queue's six items, NOT merged.** Cut from `dev` at
+`b02dc47`: `33d89ae` (G4's code + tests), `8d8b128` (G4's docs), `f730f34`
+(M12's guard), `3bc2e7c` (M12's docs), `f7fa67d` (M5 + M4, one commit as the
+queue planned) and this docs update. **Nothing is merged and no PR was opened** — `dev` is the
 maintainer's to take, and merging would deploy (see the deploy warning below).
 
 ⚠️ **This branch adds NO deploy surface.** G4's files are under
@@ -394,9 +396,9 @@ the dev project** — CI deploys functions on every push to `dev`.
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, M1–M8) is either an operator action
+What remains (G1, G3, M1–M3, M6–M8) is either an operator action
 or explicitly deferred — none of it is unfinished build work. **G4, G6, G9,
-G10, M10, M11 and M12 are all CLOSED**, and G3 is parked as #302.
+G10, M4, M5, M10, M11 and M12 are all CLOSED**, and G3 is parked as #302.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -474,6 +476,19 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**M5 + M4 closure, green bar OBSERVED (2026-08-03) at `f7fa67d`** — functions
+**955/955** (32 suites, **+4**: the EACCES rethrow with exactly one attempt, an
+error carrying no `code` taking the same path, the cap refusing with the base
+name and the attempt count in its message, and five real collisions in a row
+still finding free names) · `typecheck` + `typecheck:scripts` clean, zero new
+suppressions. Web and rules untouched by this work. Verified by planting three
+violations: the rethrow branch removed so a non-EEXIST error is retried (2 red),
+the cap message stripped of the name it was reserving (1), the exhausted loop
+returning instead of throwing (1); `ops/audit.js` byte-identical after the
+reverts. **What it does NOT cover:** the cap has never been reached on real
+hardware — every case drives a fake fs, and the condition it guards (an fs
+answering EEXIST to 100 candidates) has never been observed.
 
 **M12 closure, green bar OBSERVED (2026-08-03) at `f730f34`** on the same
 branch — web jest **2149/2149** (88 suites, **+3**: `followeeExists` probing
