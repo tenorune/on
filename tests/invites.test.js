@@ -340,6 +340,17 @@ describe('redeemPersonalInvite', () => {
     expect(result).toEqual({ ok: false, reason: 'creator-missing' });
   });
 
+  test('accepts a null alreadyFollowingSet without throwing', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', null);
+    expect(result.ok).toBe(true);
+    expect(result.creatorUid).toBe('creator');
+  });
+
   test('G10: the refusable follow write runs before the creator-side follower row', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
     db.readUserInvite.mockResolvedValue({
@@ -364,7 +375,7 @@ describe('redeemPersonalInvite', () => {
       scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
       revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
     });
-    db.setFollowingEntry.mockRejectedValue(new Error('PERMISSION_DENIED'));
+    db.setFollowingEntry.mockRejectedValueOnce(new Error('PERMISSION_DENIED'));
 
     await expect(redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set()))
       .rejects.toThrow('PERMISSION_DENIED');
@@ -373,17 +384,6 @@ describe('redeemPersonalInvite', () => {
     // Settles the followups entry's claim that the counter still increments:
     // incrementInviteRedemptions sits behind the await that throws.
     expect(db.incrementInviteRedemptions).not.toHaveBeenCalled();
-  });
-
-  test('accepts a null alreadyFollowingSet without throwing', async () => {
-    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
-    db.readUserInvite.mockResolvedValue({
-      scope: 'personal', token: 'T', creatorUid: 'creator', creatorLabel: 'Alex',
-      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
-    });
-    const result = await redeemPersonalInvite('T', 'redeemer', 'code', null);
-    expect(result.ok).toBe(true);
-    expect(result.creatorUid).toBe('creator');
   });
 });
 
