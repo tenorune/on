@@ -15,12 +15,13 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Fourteen open, seven closed. **G8 is the newest closed item** — found on
-2026-08-03 by running the residue recipe, and closed the same day. **G9, G10
-and M10 are the newest open items** — filed 2026-08-03 by the review that
+Twelve open, nine closed. **G8 is the newest closed item** — found on
+2026-08-03 by running the residue recipe, and closed the same day. **G9 and
+G10 are the next-newest closed items** — filed 2026-08-03 by the review that
 closed out G6's fix wave, from reading rather than from running the smoke
-test; see their entries below and in "Deferred minors judged fine to leave".
-**S1 is closed** — the smoke test ran to completion
+test, and closed the same day by a client-side fix verified against jest
+only; see their entries below. **M10, filed alongside them, is still open** —
+see its entry in "Deferred minors judged fine to leave". **S1 is closed** — the smoke test ran to completion
 across 2026-08-02 and 2026-08-03, all ten steps — so nothing here blocks pointing
 the panel at production data any more. **M9 is closed** too, and it was never
 really a minor: it was the one entry that could drive a bad destructive write,
@@ -50,8 +51,8 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **G6** | ~~A peer's client republishes cross-user residue, permanently~~ | `database.rules.json` + `js/following.ts` | **CLOSED** (`13cb18c`+`8a0ff62`) — does NOT close with G3; see below |
 | **G7** | ~~Expunge stranded `groupIdIndex` + group-scoped `inviteIndex`~~ | `functions/telegram-auth.js` | **CLOSED** — indexes pointing into a wholesale-deleted group |
 | **G8** | ~~Purge refused any account with no Auth record~~ | `ops/server.js:720` | **CLOSED** — it refused the safest case, and blocked the G3/G6 mitigation |
-| **G9** | `rotateCode`'s fan-out re-creates a followers row for a purged followee | `js/db/social.ts:359-363` | Known gap, whole-app; same permanence class as G6, and the more serious of the three filed alongside it |
-| **G10** | Invite redemption can leave an asymmetric follower row for a vanished creator | `js/invites.ts:211-212` | Known gap, narrow |
+| **G9** | ~~`rotateCode`'s fan-out re-creates a followers row for a purged followee~~ | `js/db/social.ts:359-363` | **CLOSED** (`728180d`) — client filter; see below |
+| **G10** | ~~Invite redemption can leave an asymmetric follower row for a vanished creator~~ | `js/invites.ts:211-212` | **CLOSED** (`4780b1f`) — write order swapped; see below |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -660,6 +661,25 @@ mirroring the guard's own predicate) touches a different function with a
 different call shape (a fan-out `update()`, not a single `setFollowingEntry`),
 and deserves its own review rather than riding in on this one's diff.
 
+**Closed** (`728180d`). A Step 0 filter runs ahead of the code reservation:
+each cached followee is checked with `followeeExists` — the same
+`presence/code` predicate the G6 rules guard applies, reused rather than
+re-derived, so the two cannot drift apart — and any followee that fails the
+check is dropped from the fan-out before `updates[...]` is ever built. An
+inconclusive read (the existence check itself fails, e.g. on a network error)
+fails **open**: the followee is kept in rather than dropped, because
+stranding a still-live followee's mirror on the old code on a transient
+failure is worse than writing one extra row for an already-dead one. The
+filter runs before the code reservation, not after, so a crash between the
+filter and the fan-out still leaves the old code valid rather than widening
+the window in which a reserved code sits orphaned in `codeIndex`. Verified by
+planting and reverting three violations, each turning exactly one new test
+red: looping over the unfiltered list instead of the filtered one, flipping
+the catch to fail closed, and moving the filter to after the reservation.
+**Verified by jest only** — no session container has ever held a
+service-account credential, and this fix, like everything else on this
+branch, has never run against a live Firebase project.
+
 ### G10 — invite redemption can leave an asymmetric follower row for a vanished creator
 
 Filed 2026-08-03 by the G6 fix-wave review (final-review finding M2). Same
@@ -694,6 +714,29 @@ same existence check I1 added) is a small, independent change with its own
 blast radius on the invite-redemption path, and bundling it into this fix wave
 would mean touching a third client call site's ordering without the review
 cycle the other two got.
+
+**Closed** (`4780b1f`). The two writes are swapped: `setFollowingEntry` — the
+one the G6 rules guard can refuse — now runs first, and `registerAsFollower`
+second. No second existence check was added; the G6 rules guard remains the
+sole authority on whether the creator still exists. When it refuses, the
+function throws before `registerAsFollower` runs, so the creator's
+`followers` node never gets the phantom row. The refusal keeps propagating as
+a throw rather than being reported as `reason: 'creator-missing'`, preserving
+the distinction between "the invite is dead" and "the check itself failed."
+Two regression tests pin this: one asserts the write order directly, the
+other asserts that a refused `setFollowingEntry` leaves `registerAsFollower`
+uncalled.
+
+**Correction to the entry above:** the claim that "the redemption counter
+still increments" on a refused write is wrong, and was wrong independent of
+the write-order fix — `incrementInviteRedemptions` sits behind the `await`
+that throws, in both the old order and the new one, so a refused
+`setFollowingEntry` was never going to let the counter tick. The second
+regression test settles this: it asserts
+`incrementInviteRedemptions` is not called when `setFollowingEntry` rejects.
+**Verified by jest only**, same scope note as G9: no session container has
+ever held a service-account credential, and this fix has never run against a
+live Firebase project.
 
 ## Parked residuals — ALL FOUR CLOSED (`c1b2cf9`)
 

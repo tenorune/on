@@ -1,7 +1,9 @@
 # G9 + G10 — client writes that name a followee who is gone
 
 **Date:** 2026-08-03
-**Status:** DESIGNED. No code written at the time of writing.
+**Status:** IMPLEMENTED — G9 by `728180d`, G10 by `4780b1f`. Verification is
+jest-only, against the emulator-free client suites (`tests/db.test.js`,
+`tests/invites.test.js`) — neither fix has run against a live project.
 **Items:** G9 (`docs/operator-panel-followups.md:619`) and G10 (`:663`), both
 filed 2026-08-03 by the review that closed out G6's fix wave.
 **Predecessor:** `docs/superpowers/specs/2026-08-03-g6-peer-republish-design.md`
