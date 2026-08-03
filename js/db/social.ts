@@ -232,14 +232,37 @@ export async function mergeUserPrefs(userId: string, fields: Record<string, unkn
   await update(ref(db, `userPrefs/${userId}`), fields);
 }
 
+// Drop my own revocation row for a target: revocations/{me}/{target} = true is
+// what removeFollower writes when the target drops me, and js/following.ts's
+// revocation watcher never deletes it — it persists until a re-follow clears it.
+// Extracted (final-review finding 1) because the path now has two callers: this
+// module's registerAsFollower and js/invites.ts's redemption path, which must
+// clear ahead of its own first relationship write. Copying the path family into
+// a second module is the signal to extract it instead.
+//
+// The write lands only in MY OWN mailbox, so clearing it early leaves no residue
+// in the target's subtree even when the relationship write that follows is
+// refused — which is the property G10 exists to protect. It is also idempotent:
+// removing an absent key is a no-op.
+export async function clearRevocation(myUserId: string, targetUserId: string): Promise<void> {
+  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
+}
+
 export async function registerAsFollower(targetUserId: string, myUserId: string, myCode: string, myName?: string | null): Promise<void> {
   // Clear any prior revocation BEFORE writing the followers entry — not in
   // parallel. The receiver's revocation watcher can fire on either write
   // independently; if the followers set echoes before the revocation remove,
   // the auto-unfollow fires on the freshly-established relationship and the new
-  // follow is silently undone. Sequential remove → set ensures the revocation
+  // follow is silently undone. Sequential clear → set ensures the revocation
   // is gone by the time the followers update is observable.
-  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
+  //
+  // The invariant is a property of the ORDERING RELATIVE TO EVERY WRITE THAT
+  // ESTABLISHES THE RELATIONSHIP, not of this function's internals alone: a
+  // caller that writes userPrefs/{me}/following/{target} before calling in here
+  // opens the same window. js/invites.ts's redemption path therefore calls
+  // clearRevocation itself, ahead of setFollowingEntry; this call then finds
+  // nothing left to remove.
+  await clearRevocation(myUserId, targetUserId);
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
   // Publish our display name into a sibling node the target reads, so a follow
   // established without their involvement (invite redemption — no follow-request

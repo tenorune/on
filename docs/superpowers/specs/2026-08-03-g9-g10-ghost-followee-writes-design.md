@@ -131,6 +131,18 @@ Four decisions inside that:
   orphans a reserved code. Before the reservation, the reads cost nothing but
   latency on an action already behind a deliberate 500 ms fade
   (`js/mycode.ts:87-89`).
+  **The consequence, recorded rather than discovered later:** the placement also
+  moves the `getFollowing()` snapshot earlier. The old code read the cache at
+  fan-out time, *after* the reservation round-trip; it is now read before it. A
+  followee added during that round-trip — a concurrent redemption or follow-grant
+  on another device — is therefore excluded from the fan-out, so their
+  `users/{T}/followers/{me}` mirror keeps the **old** code, which step 4 then
+  releases from `codeIndex`. That is the same harm §3.1 argues fail-open exists
+  to prevent, arriving through the placement instead. The pre-change window was
+  narrower but non-zero, so this widens an existing window rather than opening a
+  new class of one, and the reservation is normally a single transaction. The
+  trade is deliberate: a wider "followee added mid-rotation" window in exchange
+  for a narrower orphaned-`codeIndex` window.
 - **Reads are parallel**, and N is the followee count.
 - **Zero followees issues zero reads.** `Promise.all([])` resolves immediately,
   so the existing happy-path coverage is untouched.
@@ -168,24 +180,73 @@ Sweeping residue already in a database remains the operator call G6 left open.
 
 ## 4. G10 — swap the two writes
 
-`js/invites.ts:211-212`, reordered so `setFollowingEntry` runs first and
-`registerAsFollower` second.
+`redeemPersonalInvite`'s two relationship writes (`js/invites.ts`), reordered so
+`setFollowingEntry` runs first and `registerAsFollower` second — with the
+revocation clear hoisted ahead of both, per §4.1.
 
 The G6 rules guard then detects a creator who vanished after `:201`, and it
 refuses **before** anything is written into the creator's subtree. No new read
 is introduced: a second existence check could disagree with the guard, and the
 guard is the authority.
 
-`registerAsFollower`'s internal ordering — clear `revocations/{me}/{target}`,
-then set the followers entry (`js/db/social.ts:236-243`) — is load-bearing
-against a race in the target's revocation watcher, and it is internal to that
-function. Swapping the two call sites does not touch it.
-
 **A refused write keeps throwing.** It is deliberately not converted into
 `{ ok: false, reason: 'creator-missing' }`: this module already draws that
 distinction explicitly (the W1 J#1 contract note above `resolveInvitePreview`
 — "that invite is dead" and "couldn't check" are different answers), and
 reporting a network failure as `creator-missing` would erase it.
+
+### 4.1 The revocation clear moves too
+
+`registerAsFollower` opens by clearing `revocations/{me}/{target}` and only then
+sets the followers entry, and its comment names that ordering as load-bearing
+against a silent auto-unfollow: the redeemer's own revocation watcher
+(`js/following.ts:323-333`) drops from the local following list any uid still
+present in `revocations/{me}`, and that key survives every revoke — the watcher
+tears down watches but never deletes it.
+
+**That invariant is a property of the call-site ordering, not of
+`registerAsFollower`'s internals.** An earlier draft of this section claimed the
+swap "does not touch it"; the claim was false. Any caller that establishes the
+relationship *before* the clear opens the same window, and hoisting
+`setFollowingEntry` — the write that puts the creator **into** the watched list —
+ahead of `registerAsFollower` did exactly that. Left uncorrected it reproduces
+G10's own asymmetry for a **live** creator: the watcher fires inside the window,
+deletes the just-written following entry, `registerAsFollower` then completes,
+and `users/{creator}/followers/{redeemer}` survives with no matching follow.
+
+So the redemption path clears the revocation itself, ahead of the refusable
+write:
+
+```ts
+await clearRevocation(redeemerUid, creatorUid);
+await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
+await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
+```
+
+Three things make that safe rather than a trade:
+
+- **The clear is compatible with G10's goal.** It writes only to
+  `revocations/{redeemer}/{creator}` — the **redeemer's own** mailbox. A creator
+  purged between the `:201` read and these writes leaves the clear with nothing
+  to show for it in the creator's subtree, which is the entire property G10
+  exists to protect. Running a refusable write after an already-completed clear
+  costs nothing.
+- **`registerAsFollower`'s internal ordering is preserved by construction, not by
+  luck.** The `remove` was extracted into `clearRevocation`
+  (`js/db/social.ts`) and `registerAsFollower` now calls it rather than inlining
+  the path — so the clear still precedes its followers write on every path, and
+  the redemption path's earlier call simply makes the second one an idempotent
+  no-op. Extracting rather than hand-copying the path into `js/invites.ts`
+  follows the repo's standing rule: a path family reaching a second module is
+  the signal to share it.
+- **It is pinned by a test, not by this paragraph.** `tests/invites.test.js`
+  asserts the clear *resolves* before `setFollowingEntry` is entered, and the
+  ordering was verified by planting the violation (clear moved back after
+  `setFollowingEntry`) and confirming that test — and only that test — goes red.
+
+Everything else about G10 is unchanged: `setFollowingEntry` still runs before
+`registerAsFollower`, no second existence check is introduced, and a refused
+write still throws.
 
 ## 5. Testing
 
@@ -196,18 +257,36 @@ reporting a network failure as `creator-missing` would erase it.
 2. a live followee **is** in the payload;
 3. an existence read that **rejects** leaves its followee in the payload, and
    the rotation completes and returns the new code;
-4. zero followees issues no existence read at all.
+4. zero followees issues no existence read at all;
+5. placement — the existence reads **resolve** before the reservation is
+   entered. The mock records `begin`/`end` around an awaited tick rather than
+   comparing `invocationCallOrder`, because invocation order alone stays green
+   under a `Promise.all([<the filter>, <the reservation>])` refactor, which
+   violates the placement rule §3 argues for. Resolution ordering catches it.
 
 **`tests/invites.test.js`**:
 
-5. call order — `setFollowingEntry` resolves before `registerAsFollower` is
-   entered (recorded ordering, not two independent `toHaveBeenCalled`s);
-6. a rejected `setFollowingEntry` leaves **both** `registerAsFollower` and
+6. call order — `setFollowingEntry` **resolves** before `registerAsFollower` is
+   entered, recorded with the same `begin`/`end` idiom and for the same reason:
+   an entry-order assertion survives `Promise.all([setFollowingEntry(…),
+   registerAsFollower(…)])`, which re-opens G10 exactly, since
+   `registerAsFollower`'s write would be issued before the guard's refusal could
+   arrive. (Test 7 below independently catches that refactor too — it was the
+   coverage that actually held while this test pinned only entry order.);
+7. a rejected `setFollowingEntry` leaves **both** `registerAsFollower` and
    `incrementInviteRedemptions` uncalled — this is also what settles §1.1;
-7. the happy path is unchanged.
+8. §4.1's ordering — `clearRevocation` resolves before `setFollowingEntry`, and
+   is called with the redeemer's own uid first;
+9. the happy path is unchanged.
+
+Mock implementations in these ordering tests are one-shot
+(`mockImplementationOnce`). `jest.clearAllMocks()` does not clear a persistent
+`mockImplementation`, so it leaks into every later test in the file — the same
+hazard class the mock-rejection follow-up fixed one commit earlier.
 
 **Every guard is verified by planting a violation** — remove the filter,
-un-swap the writes — and confirming the intended tests go red, per the repo's
+un-swap the writes, move the revocation clear back after `setFollowingEntry`,
+recombine a sequenced pair into a `Promise.all` — and confirming the intended tests go red, per the repo's
 standing rule that passing on the first run proves nothing. The related rule
 ("testing a pure function proves nothing about whether it is wired in") is
 satisfied here by construction: both changes are inside the shipped call path

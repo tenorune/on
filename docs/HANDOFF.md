@@ -201,11 +201,13 @@ branch was continued as `claude/knockknock-g3-g6-revocation-cy2i0n`, not
 | `728180d` | **G9**: `rotateCode` no longer mirrors a code onto a dead followee — client filter |
 | `4780b1f` | **G10**: redemption writes reordered so the refusable one runs first |
 | `4cea158` | test-isolation follow-up on `4780b1f` — one-shot mock rejection, not a persistent one |
+| `38e95c6` | docs — G9 and G10 closed, the handoff reconciled |
+| *(this commit)* | final-review fix wave — `clearRevocation` extracted and hoisted ahead of the redemption's refusable write, the two ordering tests strengthened to pin resolution, spec §3/§4/§5 and this file corrected |
 
-The five rows above land on this same feature branch **after** the `8ad9ef0`
+The seven rows above land on this same feature branch **after** the `8ad9ef0`
 merge to `dev` described above — they are not part of the seventeen that
-merge carried, and as of this update they are **not merged to `dev` and not
-pushed**; pushing this branch is a later task's job, not this one's.
+merge carried; they are **pushed** — the branch tracks
+`origin/claude/knockknock-g6-g9-fixes-lt02a8` — and **not merged to `dev`**.
 
 `dev` → `main` is **the maintainer's**; no PR was opened, and none was asked
 for. Older branches
@@ -250,7 +252,7 @@ nothing deploys from sessions. **The merge-leg work adds nothing to that list** 
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M10) is either an operator action
+What remains (G1, G3, G4, M1–M8, M10) is either an operator action
 or explicitly deferred — none of it is unfinished build work. **G6, G9 and
 G10 are all CLOSED.**
 

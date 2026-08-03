@@ -200,10 +200,27 @@ describe('rotateCode', () => {
     expect(get).not.toHaveBeenCalled();
   });
 
-  test('G9: the existence reads run before the code reservation', async () => {
+  test('G9: the existence reads resolve before the code reservation', async () => {
     getFollowing.mockReturnValue([{ userId: 'followee-A', code: 'CODEA1', label: 'Alice' }]);
+    const order = [];
+    // 'begin'/'end' around an awaited tick rather than comparing
+    // invocationCallOrder: invocation order alone stays green under an
+    // `await Promise.all([<the filter>, <the reservation>])` refactor, which
+    // violates the placement rule it is here to pin. This pins RESOLUTION.
+    get.mockImplementationOnce(async () => {
+      order.push('get:begin');
+      await Promise.resolve();
+      order.push('get:end');
+      return { exists: () => true };
+    });
     generateCode.mockReturnValue('NEW456');
-    runTransaction.mockResolvedValue({ committed: true });
+    // One-shot: the reservation loop exits on the first committed result, and a
+    // persistent mockImplementation would survive jest.clearAllMocks() into
+    // every later describe in this file.
+    runTransaction.mockImplementationOnce(async () => {
+      order.push('runTransaction');
+      return { committed: true };
+    });
     update.mockResolvedValue();
     remove.mockResolvedValue();
 
@@ -212,8 +229,7 @@ describe('rotateCode', () => {
     // Placement is load-bearing: reads between the codeIndex reservation and
     // the publish would widen the window in which a crash orphans a reserved
     // code.
-    expect(get.mock.invocationCallOrder[0])
-      .toBeLessThan(runTransaction.mock.invocationCallOrder[0]);
+    expect(order).toEqual(['get:begin', 'get:end', 'runTransaction']);
   });
 });
 

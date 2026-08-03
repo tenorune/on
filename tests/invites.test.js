@@ -17,6 +17,7 @@ jest.mock('../js/db.js', () => ({
   // Existing exports we may exercise transitively:
   registerAsFollower: jest.fn().mockResolvedValue(undefined),
   setFollowingEntry: jest.fn().mockResolvedValue(undefined),
+  clearRevocation: jest.fn().mockResolvedValue(undefined),
   lookupCode: jest.fn(),
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
@@ -358,15 +359,55 @@ describe('redeemPersonalInvite', () => {
       revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
     });
     const order = [];
-    db.setFollowingEntry.mockImplementation(async () => { order.push('setFollowingEntry'); });
-    db.registerAsFollower.mockImplementation(async () => { order.push('registerAsFollower'); });
+    // 'begin'/'end' around an awaited tick rather than a single entry marker:
+    // entry order alone stays green under an
+    // `await Promise.all([setFollowingEntry(…), registerAsFollower(…)])`
+    // refactor, which re-opens G10 exactly — registerAsFollower's write would be
+    // issued before the guard's refusal of setFollowingEntry could arrive. The
+    // interleaved marker pins RESOLUTION, so that refactor goes red.
+    // One-shot impls: a persistent mockImplementation survives
+    // jest.clearAllMocks() and leaks into every later test in this file.
+    db.setFollowingEntry.mockImplementationOnce(async () => {
+      order.push('setFollowingEntry:begin');
+      await Promise.resolve();
+      order.push('setFollowingEntry:end');
+    });
+    db.registerAsFollower.mockImplementationOnce(async () => { order.push('registerAsFollower'); });
 
     await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
 
     // setFollowingEntry is the write the G6 rules guard can refuse. It has to
     // resolve first, or a creator purged after the :201 read keeps a follower
     // row for someone who is not, and can never become, following them (G10).
-    expect(order).toEqual(['setFollowingEntry', 'registerAsFollower']);
+    expect(order).toEqual(['setFollowingEntry:begin', 'setFollowingEntry:end', 'registerAsFollower']);
+  });
+
+  test('G10 finding 1: the revocation clear resolves before the following write', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const order = [];
+    db.clearRevocation.mockImplementationOnce(async () => {
+      order.push('clearRevocation:begin');
+      await Promise.resolve();
+      order.push('clearRevocation:end');
+    });
+    db.setFollowingEntry.mockImplementationOnce(async () => { order.push('setFollowingEntry'); });
+    db.registerAsFollower.mockImplementationOnce(async () => { order.push('registerAsFollower'); });
+
+    await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
+
+    // registerAsFollower documents clear-before-establish as load-bearing: the
+    // redeemer's revocation watcher drops from the local following list any uid
+    // still in revocations/{me}, and nothing ever deletes that key on revoke. So
+    // the clear has to resolve before setFollowingEntry — the write that puts
+    // the creator INTO that list — not merely before registerAsFollower's own
+    // followers write. It targets the redeemer's own mailbox, so running it
+    // ahead of the refusable write leaves no residue in the creator's subtree.
+    expect(order).toEqual(['clearRevocation:begin', 'clearRevocation:end', 'setFollowingEntry', 'registerAsFollower']);
+    expect(db.clearRevocation).toHaveBeenCalledWith('redeemer-uid', 'creator-uid');
   });
 
   test('G10: a refused follow writes nothing into the creator subtree and does not bump the counter', async () => {

@@ -723,9 +723,22 @@ function throws before `registerAsFollower` runs, so the creator's
 `followers` node never gets the phantom row. The refusal keeps propagating as
 a throw rather than being reported as `reason: 'creator-missing'`, preserving
 the distinction between "the invite is dead" and "the check itself failed."
-Two regression tests pin this: one asserts the write order directly, the
-other asserts that a refused `setFollowingEntry` leaves `registerAsFollower`
-uncalled.
+Three regression tests pin this: one asserts that `setFollowingEntry`
+**resolves** before `registerAsFollower` is entered, one asserts that a
+refused `setFollowingEntry` leaves `registerAsFollower` uncalled, and one
+asserts the revocation-clear ordering described next.
+
+**Follow-up, from the whole-branch review of this fix** (design §4.1): the
+swap also moved the following write ahead of the `revocations/{me}/{target}`
+clear that `registerAsFollower` documents as load-bearing against a silent
+auto-unfollow. That invariant is a property of the *call-site* ordering, not
+of `registerAsFollower`'s internals, so the swap did reorder it — and left
+uncorrected it reproduced G10's own asymmetry for a **live** creator. The
+clear is now an exported `clearRevocation` in `js/db/social.ts`, called by
+`registerAsFollower` and hoisted ahead of `setFollowingEntry` in the
+redemption path. It is safe there because it writes only to the redeemer's
+own mailbox, so it leaves nothing in the creator's subtree when the write
+after it is refused.
 
 **Correction to the entry above:** the claim that "the redemption counter
 still increments" on a refused write is wrong, and was wrong independent of
