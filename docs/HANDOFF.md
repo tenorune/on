@@ -12,8 +12,8 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 ## What's next
 
 **THERE IS A BUILD QUEUE, AND IT IS THE FIRST THING TO READ.** Every open item
-was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **Five are
-DONE (G4, M12, M5, M4, M3); ONE remains: M8.** The queue lives in
+was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **ALL SIX ARE
+NOW DONE (G4, M12, M5, M4, M3, M8) and the queue is EMPTY.** It lived in
 `docs/operator-panel-followups.md` under **"The next session's queue"**,
 directly beneath the at-a-glance table, with what to read before starting each:
 
@@ -21,7 +21,7 @@ directly beneath the at-a-glance table, with what to read before starting each:
 |---|---|---|
 | ~~**G4**~~ | ~~name the cascades the purge preview will trigger~~ — **DONE, `33d89ae`**: `plan.cascades` on all four destructive previews, compared preview-to-execute | the FIRST of that entry's two candidates was the one built — **not** the pre-image one |
 | ~~**M12**~~ | ~~tie the G6 `presence/code` predicate to `followeeExists`~~ — **DONE**: a jest guard derives the node path from the rules `.validate` and pins `followeeExists` to it | the `shared/` constant route was NOT taken — the rules file is JSON and cannot import |
-| **M8** | make `adoptGroupNames` reachable from the browser | UI half only; server + merge already exist |
+| ~~**M8**~~ | ~~make `adoptGroupNames` reachable from the browser~~ — **DONE**: a tick per colliding group, and ticking re-previews | driven in a real browser against canned responses; the harness is uncommitted |
 | ~~**M5**~~ | ~~cap the audit filename-collision retry~~ — **DONE**: 100 attempts, then a refusal naming the cause | rode one commit with M4, as planned |
 | ~~**M4**~~ | ~~test the non-`EEXIST` rethrow~~ — **DONE**: two cases, plus one for an error with no `code` at all | the branch was already correct; the tests were the item |
 | ~~**M3**~~ | ~~take the canvas-key split from the shared helper~~ — **DONE**: `canvasUids` in `ops/project.js`, plus a guard against a fourth copy | the JOIN stays in `ops/merge.js`; the round trip between the two is pinned instead |
@@ -89,14 +89,15 @@ re-derive them.
 its two candidates, not the second). **M12 is DONE** too — the rules predicate
 and `followeeExists` are now tied by a test that derives one from the other.
 **M5 and M4 are DONE** too, in one
-commit as the queue planned, and **M3 is DONE** as well.
-**Still to DO: M8, alone.**
+commit as the queue planned, **M3 is DONE**, and **M8 is DONE** — the queue is
+empty. **Nothing on it is owed.** What is left in the followups file is the five
+WON'T FIX rulings, G3 parked as #302, and the deferred minors nobody promoted.
 **WON'T FIX: G1, M1, M2,
 M6, M7** — ruled, not open questions; raise it before working one, not after.
 **G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
 unruled, so a session picking it up does not need to re-litigate any of it.
 
-Everything else in that file (**G1**, **M1**, **M2**, **M6–M8**) is a
+Everything else in that file (**G1**, **M1**, **M2**, **M6**, **M7**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
 write? **M10 and M11 are now CLOSED** — both were G6-descended, and closing
@@ -234,10 +235,11 @@ not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
 landed; this file was the stale one. Nothing else is owed on this branch.
 
 **Branch status (2026-08-03, LATEST): `claude/knockknock-operator-queue-xycpd8`
-— five of the build queue's six items, NOT merged.** Cut from `dev` at
+— the WHOLE build queue, NOT merged.** Cut from `dev` at
 `b02dc47`: `33d89ae` (G4's code + tests), `8d8b128` (G4's docs), `f730f34`
 (M12's guard), `3bc2e7c` (M12's docs), `f7fa67d` (M5 + M4, one commit as the
-queue planned), `35e300e` (their docs), `787f6be` (M3) and this docs update. **Nothing is merged and no PR was opened** — `dev` is the
+queue planned), `35e300e` (their docs), `787f6be` (M3), `6c7bce9` (its docs),
+`17945c3` (M8) and this docs update. **Nothing is merged and no PR was opened** — `dev` is the
 maintainer's to take, and merging would deploy (see the deploy warning below).
 
 ⚠️ **This branch adds NO deploy surface.** G4's files are under
@@ -397,9 +399,9 @@ the dev project** — CI deploys functions on every push to `dev`.
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, M1, M2, M6–M8) is either an operator action
+What remains (G1, G3, M1, M2, M6, M7) is either an operator action
 or explicitly deferred — none of it is unfinished build work. **G4, G6, G9,
-G10, M3, M4, M5, M10, M11 and M12 are all CLOSED**, and G3 is parked as #302.
+G10, M3, M4, M5, M8, M10, M11 and M12 are all CLOSED**, and G3 is parked as #302.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -477,6 +479,27 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**M8 closure, green bar OBSERVED (2026-08-03) at `17945c3`** — functions
+**964/964** (32 suites, **+5**: the collision conflict carrying its gid, an
+execute whose adoption set was ADDED after the preview refused, the mirror where
+one is DROPPED, and two source assertions over `panel.html`) · typechecks clean,
+zero new suppressions · web and rules untouched.
+
+**M8 is also the one item that was driven in a REAL BROWSER** — Chromium against
+canned API responses, no credential and no database. Unticked: "survivor's
+record kept" over a 3-path write-set. Ticked: "loser's displayName adopted" over
+4 paths. Unticking goes back. The harness is a scratchpad script and is
+deliberately NOT committed: it would drag a playwright dependency into a repo
+with none, and it stubs the very server it would be checking.
+
+⚠️ **Two planted violations initially stayed GREEN here, and that is the finding
+worth carrying forward.** A source assertion that `panel.html` CONTAINS
+`adoptBlock` still passes with the call site deleted, and one that the page
+mentions `onChange` still passes with nothing installing the handler. Both were
+strengthened to assert the call site and the wiring. A control that exists but
+is never rendered is M8's own shape one layer over — the server accepted a flag
+the page never sent — so the guard has to name the seam, not the symbol.
 
 **M3 closure, green bar OBSERVED (2026-08-03) at `787f6be`** — functions
 **959/959** (32 suites, **+4**: `canvasUids` returning both sides, the round

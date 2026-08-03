@@ -453,12 +453,17 @@ Four things worth knowing before the first run:
   refuses it (**M9**), and there is no merge equivalent — a merge is not undone by
   replaying a write-set, because the survivor's own prior state is entangled with
   what was carried onto it. Plan a merge as one-way.
-* **`adoptGroupNames` has no UI.** `server.js` accepts it and `merge.js`
-  implements it, but `panel.html` never sends it — so a `group-member-collision`
-  previewed from the browser always resolves *"survivor's record kept"*. The
-  per-group displayName **carry** comes from the group the loser is in and the
-  survivor is not (`merge.js:220-221`), which is why the fixture seeds one of
-  each. To exercise the adopt branch you have to POST the route directly.
+* **`adoptGroupNames` is a tick per colliding group** (**M8**, closed
+  2026-08-03 — this entry used to read "has no UI"). The merge preview lists
+  every `group-member-collision` with a checkbox; ticking one adopts the
+  **loser's** per-group displayName in that group. Each tick **re-previews**, so
+  the conflict's resolution line, the write-set path count and the nonce all
+  move with your choice: what the dialog shows is always what would execute, and
+  an execute whose adoption set does not match its preview is refused. Both
+  merge buttons — "merge into…" and "link via merge…" — share the same flow.
+  Separately, the per-group displayName **carry** (no collision, so no tick)
+  comes from a group the loser is in and the survivor is not
+  (`merge.js`'s loser-only branch), which is why the fixture seeds one of each.
 
 The seed's shape and every read-back claim live in `ops/merge-fixture.js` as
 plain values; `functions/test/ops-merge-fixture.test.js` drives that write-set
