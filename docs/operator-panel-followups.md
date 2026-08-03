@@ -624,7 +624,7 @@ device-observed; nothing here re-derives a live sighting.
 
 `js/db/social.ts:359-363`, `rotateCode`'s code-rotation fan-out (line numbers as
 of this fix wave — `followeeExists`, added just above by finding I1, shifted
-this block down by ten lines from where the review found it at `:347-351`):
+this block down by twelve lines from where the review found it at `:347-351`):
 
 ```ts
 const updates: Record<string, unknown> = { [`users/${userId}/presence/code`]: newCode };
