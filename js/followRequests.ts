@@ -12,7 +12,7 @@
 
 import {
   writeFollowRequest, deleteFollowRequest, watchFollowGrants, deleteFollowGrant,
-  setFollowingEntry, registerAsFollower,
+  setFollowingEntry, registerAsFollower, followeeExists,
 } from './db.js';
 import { getFollowing } from './prefs.js';
 import { showToast } from './groups.js';
@@ -155,7 +155,26 @@ export function initFollowGrants(myUid: string, myCode: string) {
         await deleteFollowGrant(myUid, targetUid);
         clearRequested(targetUid);
       } catch {
-        // Leave the grant in place; retried on the next tick / next load.
+        // Undeliverable vs. transient (G6 finding I1). setFollowingEntry is the
+        // first await above, so if it was refused by the rules guard because the
+        // approver's account no longer exists, neither registerAsFollower nor
+        // deleteFollowGrant ran — no asymmetric follower row is created by this
+        // path (a different path's concern, M2, not fixed here). Probe the same
+        // predicate the guard checks: if the account is really gone, this grant
+        // can never be honoured, so resolve it exactly as the success path does
+        // rather than retrying it forever. If the probe itself fails (offline)
+        // or the account is still there, treat this as the ordinary transient
+        // failure it was before — leave the grant for the next tick.
+        let targetGone = false;
+        try { targetGone = !(await followeeExists(targetUid)); } catch { /* offline: treat as transient */ }
+        if (targetGone) {
+          try {
+            await deleteFollowGrant(myUid, targetUid);
+            clearRequested(targetUid);
+          } catch {
+            // Delete failed too; retried on the next tick like any other failure.
+          }
+        }
       } finally {
         _inflight.delete(targetUid);
       }
