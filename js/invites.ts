@@ -6,7 +6,7 @@ import {
   claimInviteToken, writeUserInvite, readUserInvites,
   setInviteRevoked, setInviteLabel, releaseInviteToken,
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
-  registerAsFollower, setFollowingEntry,
+  registerAsFollower, setFollowingEntry, clearRevocation,
   writeGroupInvite, readGroupInvites, readGroupInvite, setGroupInviteRevoked,
   readGroupName, readMember, callResolveInvitePreview,
 } from './db.js';
@@ -208,8 +208,34 @@ export async function redeemPersonalInvite(token: string, redeemerUid: string, r
   // redeemerName (the redeemer's own display name — Telegram first name) rides
   // along so the creator's followers list can show "CODE (Name)" for a follow
   // that never went through a follow-request approval to teach them the name.
-  await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
+  // G10: the refusable write goes FIRST. The creator's presence/code was read
+  // at :201, but they can be purged between that read and these writes; in
+  // that window the G6 rules guard refuses setFollowingEntry, and running it
+  // first means registerAsFollower never writes users/{creator}/followers/{me}
+  // (plus its followerNames sibling) for an account that is gone. The refusal
+  // propagates as a throw rather than becoming reason: 'creator-missing' —
+  // "that invite is dead" and "couldn't check" are different answers (W1 J#1).
+  //
+  // The revocation clear runs ahead of BOTH writes (final-review finding 1).
+  // registerAsFollower documents clear-before-establish as load-bearing against
+  // the redeemer's own revocation watcher (js/following.ts:323-333), which drops
+  // from the local following list any uid still present in revocations/{me} —
+  // and that key survives every revoke, since the watcher never deletes it. With
+  // setFollowingEntry hoisted ahead of registerAsFollower, leaving the clear
+  // inside registerAsFollower would put the following write into that window and
+  // let the watcher silently undo a follow the creator is about to get a
+  // follower row for. Clearing first is free of G10 risk because the key is in
+  // the redeemer's OWN mailbox: it leaves nothing in the creator's subtree even
+  // when the write below is refused.
+  //
+  // What that costs is filed as M11: when the write below IS refused, the key is
+  // already gone, so the watcher no longer prunes a stale following/{creator}
+  // entry off it. That residue sits in the redeemer's own list and self-corrects
+  // on their next follow or unfollow of this uid — unlike the cross-user row the
+  // ordering exists to prevent, which nothing ever sweeps.
+  await clearRevocation(redeemerUid, creatorUid);
   await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
+  await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
   await incrementInviteRedemptions(creatorUid, token);
 
   return { ok: true, creatorUid, creatorCode, creatorLabel: invite.creatorLabel || '' };

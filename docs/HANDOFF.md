@@ -49,14 +49,20 @@ client does when its token is refused, and it touches every write path in the
 app. **Start with a spec, not code** — the measurements are already in
 `docs/operator-panel-followups.md`, so don't re-derive them.
 
-Everything else in that file (**G1**, **G4**, **G9**, **G10**, **M1–M10**) is a
+Everything else in that file (**G1**, **G4**, **M1–M8**, **M10**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
-write? **G9 passes that test on its face** — `rotateCode`'s fan-out re-creates
-`users/{T}/followers/{me}` for a followee that no longer exists, automatically
-and per entry, which is G6's permanence class in a path the G6 fix does not
-cover. It was filed rather than fixed only because it surfaced in the review
-that closed G6 out, not to rank it below the other deferrals.
+write? **G9 and G10 are CLOSED** (`728180d`, `4780b1f`) — both were filed
+2026-08-03 by the same review that closed out G6, found by reading rather than
+by running the smoke test, and both got a small client-side fix the same day:
+`rotateCode`'s fan-out (`js/db/social.ts`) now drops a followee whose
+`presence/code` is gone before building its fan-out, and invite redemption
+(`js/invites.ts`) now runs the refusable `setFollowingEntry` write before
+`registerAsFollower` instead of after. **Verified by jest only** — no session
+container has ever held a service-account credential, so neither fix has run
+against a live project, and neither item was ever device-observed. Full
+reasoning, including a correction to G10's original entry, is in
+`docs/operator-panel-followups.md`.
 
 **Step 9's purge side, OBSERVED across three runs (2026-08-02).** Run 3 closed it:
 a purge with the **Auth-record box ticked**, `ops/verify-auth-delete.js` run
@@ -134,21 +140,22 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Fourteen open, seven closed** — all ranked with stable IDs in the "at a
+**Thirteen open, nine closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
-sits in `.ops-audit/` beside the purge dumps). Open: G1, **G3** and **G4** (known
-gaps — G3 is a whole-app rules gap, not a panel item; G4 came out of running
-the smoke test); **G9**, **G10** and **M10**, all three filed 2026-08-03 by the
-review that closed out G6's fix wave, from READING rather than from running; and
-M1–M8 (deferred minors, each with its `file:line` and why it was left; none of
-them affects the correctness of a destructive write, which is the test to
-re-apply before promoting one). **G9 is the one to read first**: `rotateCode`'s
-fan-out (`js/db/social.ts:359-363`) re-creates `users/{T}/followers/{me}` from
-the local cache for a followee that no longer exists — the same permanence class
-as G6, automatic rather than user-driven, and outside the G6 spec's §4.1 sweep
-because that table was scoped to what `crossRefRenderers` enumerates.
+sits in `.ops-audit/` beside the purge dumps). **G9 and G10 are now CLOSED**
+too (`728180d`, `4780b1f`) — see "What's next" above. Open: G1, **G3** and
+**G4** (known gaps — G3 is a whole-app rules gap, not a panel item; G4 came
+out of running the smoke test); **M10**, filed 2026-08-03 by the review that
+closed out G6's fix wave, from READING rather than from running; **M11**, filed
+the same day by the scoped re-review of this branch's final fix wave — the only
+open item created *by* a fix here rather than found in code that predated it
+(G10's revocation-clear hoist drops the watcher's cleanup of a stale own-side
+follow when the redemption is refused); and M1–M8
+(deferred minors, each with its `file:line` and why it was left; none of them
+affects the correctness of a destructive write, which is the test to
+re-apply before promoting one).
 **G6 is now CLOSED** too (`13cb18c`+`8a0ff62`+`e2dde4e`) — it does
 NOT close with G3, contrary to what this file used to say; see "What's next"
 above.
@@ -193,6 +200,18 @@ branch was continued as `claude/knockknock-g3-g6-revocation-cy2i0n`, not
 | `e2dde4e` | `$sub` refuses a write two levels below a following entry — `$field` alone closed only one |
 | `10e7c0b` | **G9/G10/M10** filed; the spec's §6 table and the forgeable-predicate landmine corrected |
 | `6ff93cb` | the G9 shift was twelve lines, not ten |
+| `b1d55ed` | spec: G9 + G10 — client writes that name a followee who is gone |
+| `ecc551d` | plan: G9 + G10 — implementation, TDD, four tasks |
+| `728180d` | **G9**: `rotateCode` no longer mirrors a code onto a dead followee — client filter |
+| `4780b1f` | **G10**: redemption writes reordered so the refusable one runs first |
+| `4cea158` | test-isolation follow-up on `4780b1f` — one-shot mock rejection, not a persistent one |
+| `38e95c6` | docs — G9 and G10 closed, the handoff reconciled |
+| *(this commit)* | final-review fix wave — `clearRevocation` extracted and hoisted ahead of the redemption's refusable write, the two ordering tests strengthened to pin resolution, spec §3/§4/§5 and this file corrected |
+
+The seven rows above land on this same feature branch **after** the `8ad9ef0`
+merge to `dev` described above — they are not part of the seventeen that
+merge carried; they are **pushed** — the branch tracks
+`origin/claude/knockknock-g6-g9-fixes-lt02a8` — and **not merged to `dev`**.
 
 `dev` → `main` is **the maintainer's**; no PR was opened, and none was asked
 for. Older branches
@@ -208,15 +227,22 @@ one.** `ops/**` is excluded from the functions archive, so G8
 all, and the docs commits ride nothing.
 ⚠️ **`13cb18c`+`e2dde4e` are an undeployed RULES change** — the fourth
 undeployed behaviour change on `dev`, and the only one on this surface.
-⚠️ **`8620702`, `8a0ff62`, `94c9aa6` and `b595dcb` are undeployed CLIENT
+⚠️ **`8620702`, `8a0ff62`, `94c9aa6`, `b595dcb`, and now `js/db/social.ts` and
+`js/invites.ts` (G9 and G10, `728180d`+`4780b1f`) are undeployed CLIENT
 behaviour**, riding the next **hosting** deploy: the push-up gate, its
-localStorage key and that key's account-scoped classification, plus I1's
-undeliverable-grant handling. Do not read "only `js/`" as "no deploy" —
+localStorage key and that key's account-scoped classification, I1's
+undeliverable-grant handling, `rotateCode`'s dead-followee filter, and
+invite redemption's write reorder. Do not read "only `js/`" as "no deploy" —
 `js/` is exactly what Hosting serves.
-The two are independent of each other and of the functions queue: the rules
-guard is the half that actually closes G6 and it binds every client the moment
-it ships, including ones nobody can update; the client half only ever binds
-clients that have updated.
+⚠️ **G9 and G10 do NOT touch `database.rules.json`.** The rules surface is
+**unchanged** by this branch: the undeployed rules commits (`13cb18c`+
+`e2dde4e`) are exactly as they were, and remain the only undeployed RULES
+change. A reader who knows G6 will reasonably assume a G6-adjacent fix moved
+the rules again — it did not; both G9 and G10 are client-only fixes.
+The two surfaces are independent of each other and of the functions queue: the
+rules guard is the half that actually closes G6 and it binds every client the
+moment it ships, including ones nobody can update; the client half only ever
+binds clients that have updated.
 Rules deploy independently of hosting and functions
 (`firebase deploy --only database`) and bind every client immediately,
 including ones nobody can update. Nothing deploys from sessions;
@@ -230,8 +256,9 @@ nothing deploys from sessions. **The merge-leg work adds nothing to that list** 
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, G9, G10, M1–M10) is either an operator action
-or explicitly deferred — none of it is unfinished build work. **G6 is CLOSED.**
+What remains (G1, G3, G4, M1–M8, M10, M11) is either an operator action
+or explicitly deferred — none of it is unfinished build work. **G6, G9 and
+G10 are all CLOSED.**
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -347,6 +374,28 @@ new `tests/rules/g6-following-referent.test.js` (the 12-suite rules run was
 not tracked in this file before this branch — 115/115 is this run's own
 baseline, not a delta). Functions is **unchanged** at 941/941 (32 suites) —
 nothing in this plan touches `functions/`.
+
+**G9 + G10 closure, green bar OBSERVED on this feature branch (2026-08-03) at
+the tip that closes both** — baseline `6c45ff5` (web 2132/2132 in 88 suites ·
+functions 941/941 in 32 · rules 116/116 in 12 · typechecks clean · build OK):
+
+- web jest **2138/2138** (88 suites, unchanged) — **+4** in `tests/db.test.js`
+  (the three planted-violation regressions for the fan-out filter, fail-open
+  read, and reservation ordering, plus one no-followees edge case) and **+2**
+  in `tests/invites.test.js` (G10's write-order and refused-write
+  regressions), net **+6** over the `6c45ff5` baseline
+- functions **941/941** (32 suites) — **unchanged**, nothing here touches
+  `functions/`
+- rules (emulator) **116/116** (12 suites) — **unchanged**,
+  `database.rules.json` is untouched
+- `typecheck` + `typecheck:scripts` — clean
+- `node scripts/prod.js` — builds
+
+**Same scope note as G6's bar above:** this is jest and the rules emulator
+only. No session container has ever held a service-account credential, so
+neither G9's fix nor G10's fix has run against a live Firebase project, and
+neither item was ever device-observed in the first place — both were found
+by reading, in the review that closed out G6.
 
 Functions movement from the `22abc8a` bar (919/31): **+12** in
 `ops-merge-fixture.test.js` for the mapping shapes, **+5** in a new suite

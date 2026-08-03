@@ -15,12 +15,16 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Fourteen open, seven closed. **G8 is the newest closed item** — found on
-2026-08-03 by running the residue recipe, and closed the same day. **G9, G10
-and M10 are the newest open items** — filed 2026-08-03 by the review that
+Thirteen open, nine closed. **G8 is the newest closed item** — found on
+2026-08-03 by running the residue recipe, and closed the same day. **G9 and
+G10 are the next-newest closed items** — filed 2026-08-03 by the review that
 closed out G6's fix wave, from reading rather than from running the smoke
-test; see their entries below and in "Deferred minors judged fine to leave".
-**S1 is closed** — the smoke test ran to completion
+test, and closed the same day by a client-side fix verified against jest
+only; see their entries below. **M11 is the newest open item** — a consequence
+of G10's own fix, filed 2026-08-03 by the whole-branch review's scoped
+re-review rather than by a reviewer reading the original code. **M10, filed
+alongside G9 and G10, is still open** — see both entries in "Deferred minors
+judged fine to leave". **S1 is closed** — the smoke test ran to completion
 across 2026-08-02 and 2026-08-03, all ten steps — so nothing here blocks pointing
 the panel at production data any more. **M9 is closed** too, and it was never
 really a minor: it was the one entry that could drive a bad destructive write,
@@ -50,8 +54,8 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **G6** | ~~A peer's client republishes cross-user residue, permanently~~ | `database.rules.json` + `js/following.ts` | **CLOSED** (`13cb18c`+`8a0ff62`) — does NOT close with G3; see below |
 | **G7** | ~~Expunge stranded `groupIdIndex` + group-scoped `inviteIndex`~~ | `functions/telegram-auth.js` | **CLOSED** — indexes pointing into a wholesale-deleted group |
 | **G8** | ~~Purge refused any account with no Auth record~~ | `ops/server.js:720` | **CLOSED** — it refused the safest case, and blocked the G3/G6 mitigation |
-| **G9** | `rotateCode`'s fan-out re-creates a followers row for a purged followee | `js/db/social.ts:359-363` | Known gap, whole-app; same permanence class as G6, and the more serious of the three filed alongside it |
-| **G10** | Invite redemption can leave an asymmetric follower row for a vanished creator | `js/invites.ts:211-212` | Known gap, narrow |
+| **G9** | ~~`rotateCode`'s fan-out re-creates a followers row for a purged followee~~ | `js/db/social.ts:359-363` | **CLOSED** (`728180d`) — client filter; see below |
+| **G10** | ~~Invite redemption can leave an asymmetric follower row for a vanished creator~~ | `js/invites.ts:211-212` | **CLOSED** (`4780b1f`) — write order swapped; see below |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -62,6 +66,7 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **M8** | `adoptGroupNames` is unreachable from the browser | `ops/panel.html:207,228` | Minor |
 | **M9** | ~~`restore-preimage.js` has no guard on the dump's `op`~~ | `ops/restore-preimage.js` | **CLOSED** — the one entry here that could drive a bad destructive write |
 | **M10** | The G6 rules test types the guarded path by hand, untied to what `setFollowingEntry` writes | `tests/rules/g6-following-referent.test.js:22` | Minor |
+| **M11** | G10's fix clears the revocation before a write that may be refused, so a failed redemption drops the watcher's cleanup of a stale own-side follow | `js/invites.ts:230` | Minor |
 
 **Standing constraints, not work items** — these are decisions, and nothing is
 owed against them: the panel is single-operator by construction (approvals are
@@ -660,6 +665,25 @@ mirroring the guard's own predicate) touches a different function with a
 different call shape (a fan-out `update()`, not a single `setFollowingEntry`),
 and deserves its own review rather than riding in on this one's diff.
 
+**Closed** (`728180d`). A Step 0 filter runs ahead of the code reservation:
+each cached followee is checked with `followeeExists` — the same
+`presence/code` predicate the G6 rules guard applies, reused rather than
+re-derived, so the two cannot drift apart — and any followee that fails the
+check is dropped from the fan-out before `updates[...]` is ever built. An
+inconclusive read (the existence check itself fails, e.g. on a network error)
+fails **open**: the followee is kept in rather than dropped, because
+stranding a still-live followee's mirror on the old code on a transient
+failure is worse than writing one extra row for an already-dead one. The
+filter runs before the code reservation, not after, so a crash between the
+filter and the fan-out still leaves the old code valid rather than widening
+the window in which a reserved code sits orphaned in `codeIndex`. Verified by
+planting and reverting three violations, each turning exactly one new test
+red: looping over the unfiltered list instead of the filtered one, flipping
+the catch to fail closed, and moving the filter to after the reservation.
+**Verified by jest only** — no session container has ever held a
+service-account credential, and this fix, like everything else on this
+branch, has never run against a live Firebase project.
+
 ### G10 — invite redemption can leave an asymmetric follower row for a vanished creator
 
 Filed 2026-08-03 by the G6 fix-wave review (final-review finding M2). Same
@@ -694,6 +718,42 @@ same existence check I1 added) is a small, independent change with its own
 blast radius on the invite-redemption path, and bundling it into this fix wave
 would mean touching a third client call site's ordering without the review
 cycle the other two got.
+
+**Closed** (`4780b1f`). The two writes are swapped: `setFollowingEntry` — the
+one the G6 rules guard can refuse — now runs first, and `registerAsFollower`
+second. No second existence check was added; the G6 rules guard remains the
+sole authority on whether the creator still exists. When it refuses, the
+function throws before `registerAsFollower` runs, so the creator's
+`followers` node never gets the phantom row. The refusal keeps propagating as
+a throw rather than being reported as `reason: 'creator-missing'`, preserving
+the distinction between "the invite is dead" and "the check itself failed."
+Three regression tests pin this: one asserts that `setFollowingEntry`
+**resolves** before `registerAsFollower` is entered, one asserts that a
+refused `setFollowingEntry` leaves `registerAsFollower` uncalled, and one
+asserts the revocation-clear ordering described next.
+
+**Follow-up, from the whole-branch review of this fix** (design §4.1): the
+swap also moved the following write ahead of the `revocations/{me}/{target}`
+clear that `registerAsFollower` documents as load-bearing against a silent
+auto-unfollow. That invariant is a property of the *call-site* ordering, not
+of `registerAsFollower`'s internals, so the swap did reorder it — and left
+uncorrected it reproduced G10's own asymmetry for a **live** creator. The
+clear is now an exported `clearRevocation` in `js/db/social.ts`, called by
+`registerAsFollower` and hoisted ahead of `setFollowingEntry` in the
+redemption path. It is safe there because it writes only to the redeemer's
+own mailbox, so it leaves nothing in the creator's subtree when the write
+after it is refused.
+
+**Correction to the entry above:** the claim that "the redemption counter
+still increments" on a refused write is wrong, and was wrong independent of
+the write-order fix — `incrementInviteRedemptions` sits behind the `await`
+that throws, in both the old order and the new one, so a refused
+`setFollowingEntry` was never going to let the counter tick. The second
+regression test settles this: it asserts
+`incrementInviteRedemptions` is not called when `setFollowingEntry` rejects.
+**Verified by jest only**, same scope note as G9: no session container has
+ever held a service-account credential, and this fix has never run against a
+live Firebase project.
 
 ## Parked residuals — ALL FOUR CLOSED (`c1b2cf9`)
 
@@ -747,6 +807,13 @@ on or check off. **M10 is new** (2026-08-03, filed by the G6 fix-wave review) �
 outside `ops/` like G9 and G10 above, but the same test applies: it is a test's
 own wiring gap, not a destructive write's correctness.
 
+**M11 is newer still**, and it is the one entry here that was created *by* a fix
+on this branch rather than found in code that predated it. It came out of the
+scoped re-review of the whole-branch review's fix wave — the round that verified
+G10's revocation-clear hoist — which is worth noting as a method result: the
+finding exists because someone asked what the fix itself cost, not what the
+original code did wrong.
+
 ⚠️ **M9 never passed that test — it was the one entry here that could drive a bad
 destructive write, and it is now CLOSED.** It is kept below because *why it was
 mis-filed* is the useful part: it was recorded as a minor because that was the
@@ -765,6 +832,7 @@ rather than letting the section heading stand as a verdict.
 | **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |
 | **M9** — **CLOSED** | `ops/restore-preimage.js` (`opGuard`) | The dump was read for `preImage` and its `op` printed but never checked. Every judgement in that module rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block were all built on an assumption that does not hold for a merge dump, and the `restore` verdict on the paths the merge *did* null would **partially resurrect the merged-away account**. A restore's own dump has the mirror problem: it holds the PRE-restore state, so replaying it undoes the restore. | **Closed** by `opGuard`. It is an **allowlist** — an absent, empty or unrecognised `op` is refused rather than assumed to be a purge, because the assumption *is* the risk. It fires on a **dry run** too: the dry run writes nothing, but its verdicts and its sweep are the misleading part, and `jq` reads a dump of any shape without pretending to interpret it. The override is `--i-know-this-is-not-a-purge`, named so it cannot be typed by reflex, and it prints what it is overriding. Deferring stopped being tenable on 2026-08-03, when the merge leg put a real merge dump in `.ops-audit/` beside the purge dumps, one tab-complete from the familiar command. Verified by planting two violations (an always-ok guard, and the allowlist turned into a denylist) **and** by running the CLI against fabricated merge / purge / no-`op` dumps — tests on the pure function prove nothing about the wiring, which is the mistake the `ops/**` import guard made twice. |
 | **M10** | `tests/rules/g6-following-referent.test.js:22` | The G6 rules suite's guarded path (`userPrefs/M/following/T`) is typed by hand in the test, with nothing tying it to the path `js/db/social.ts:287`'s `setFollowingEntry` actually writes. The design spec's §7 asked for that specific case to be "exercised through `setFollowingEntry` itself" — the client half honoured the equivalent requirement (through the `watchFollowing` callback), the rules half did not. | Today the two agree, verified by inspection, and the rules suite is green. But a refactor of that one line in `js/db/social.ts` would leave the guard sitting on a path nothing writes, with the suite still green and nobody told. Filed (final-review finding M6) rather than fixed on this branch: closing it means adding a jest assertion on the ref path `setFollowingEntry` itself builds, which is a client-side (jest) addition to a rules-emulator suite and deserves its own small review rather than riding in on this wave's rules/client split. |
+| **M11** | `js/invites.ts:230` | G10's fix hoists `clearRevocation(redeemerUid, creatorUid)` ahead of `setFollowingEntry`, which is the write the G6 rules guard can refuse. When that write IS refused — the creator was purged between the `presence/code` read at `:201` and the write landing — the revocation key has already been cleared, and the redeemer's revocation watcher (`js/following.ts`) uses exactly that key to prune a stale `following/{creator}` entry from the local list. So a *failed* redemption can leave a stale own-side follow that the watcher would otherwise have cleaned up. Note the old ordering did not have this property either by design: it avoided the case by never clearing the key until `registerAsFollower` ran, which is the ordering G10 had to break. | It is in the redeemer's **own** subtree, not a peer's — visible in their own list, and self-correcting on the next successful follow or unfollow of that uid. It is strictly better than what it replaced: the alternative orderings either re-open G10 (cross-user residue under an account that no longer exists, which nothing sweeps) or reintroduce the silent auto-unfollow the whole-branch review caught. Left because the cost is a stale row in the user's own cache-backed list against a permanent cross-user write, and that trade is not close. Closing it means having the refusal path restore the key, or having the watcher prune on a predicate other than the revocation key — either is its own change with its own review. Filed 2026-08-03 by the scoped re-review of the final fix wave. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is
 insufficient — `/** @type {any} */` is the same escape hatch in JSDoc and slipped

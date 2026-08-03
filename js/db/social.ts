@@ -232,14 +232,37 @@ export async function mergeUserPrefs(userId: string, fields: Record<string, unkn
   await update(ref(db, `userPrefs/${userId}`), fields);
 }
 
+// Drop my own revocation row for a target: revocations/{me}/{target} = true is
+// what removeFollower writes when the target drops me, and js/following.ts's
+// revocation watcher never deletes it — it persists until a re-follow clears it.
+// Extracted (final-review finding 1) because the path now has two callers: this
+// module's registerAsFollower and js/invites.ts's redemption path, which must
+// clear ahead of its own first relationship write. Copying the path family into
+// a second module is the signal to extract it instead.
+//
+// The write lands only in MY OWN mailbox, so clearing it early leaves no residue
+// in the target's subtree even when the relationship write that follows is
+// refused — which is the property G10 exists to protect. It is also idempotent:
+// removing an absent key is a no-op.
+export async function clearRevocation(myUserId: string, targetUserId: string): Promise<void> {
+  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
+}
+
 export async function registerAsFollower(targetUserId: string, myUserId: string, myCode: string, myName?: string | null): Promise<void> {
   // Clear any prior revocation BEFORE writing the followers entry — not in
   // parallel. The receiver's revocation watcher can fire on either write
   // independently; if the followers set echoes before the revocation remove,
   // the auto-unfollow fires on the freshly-established relationship and the new
-  // follow is silently undone. Sequential remove → set ensures the revocation
+  // follow is silently undone. Sequential clear → set ensures the revocation
   // is gone by the time the followers update is observable.
-  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
+  //
+  // The invariant is a property of the ORDERING RELATIVE TO EVERY WRITE THAT
+  // ESTABLISHES THE RELATIONSHIP, not of this function's internals alone: a
+  // caller that writes userPrefs/{me}/following/{target} before calling in here
+  // opens the same window. js/invites.ts's redemption path therefore calls
+  // clearRevocation itself, ahead of setFollowingEntry; this call then finds
+  // nothing left to remove.
+  await clearRevocation(myUserId, targetUserId);
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
   // Publish our display name into a sibling node the target reads, so a follow
   // established without their involvement (invite redemption — no follow-request
@@ -341,6 +364,27 @@ export async function touchLastSeen(userId: string): Promise<void> {
 // Returns the new code string on success. Throws on failure.
 // Old code is deleted LAST so it remains valid if any earlier write fails.
 export async function rotateCode(userId: string, oldCode: string): Promise<string> {
+  // Step 0 (G9): drop followees that no longer exist before building the
+  // fan-out. A cached entry for an account purged, merged or graduated since
+  // the last sync would otherwise get users/{T}/followers/{me} rewritten under
+  // a dead uid — residue in T's OWN subtree, which crossRefRenderers does not
+  // enumerate and nothing ever sweeps. Same predicate as the G6 rules guard,
+  // through the same function so the two cannot drift apart.
+  //
+  // Before the reservation on purpose: reads placed between reserving the new
+  // code and publishing it would widen the window in which a crash leaves an
+  // orphan in codeIndex.
+  //
+  // An inconclusive read keeps the entry. Dropping a LIVE followee strands
+  // their mirror on the old code and silently breaks a working contact with
+  // nothing to retry it; including a dead one writes a single row that would
+  // have been written anyway before this filter existed.
+  const checked = await Promise.all(getFollowing().map(async (entry) => ({
+    entry,
+    live: await followeeExists(entry.userId).catch(() => true),
+  })));
+  const liveFollowing = checked.filter((c) => c.live).map((c) => c.entry);
+
   // Step 1: reserve new code (collision-safe)
   let newCode: string, committed: boolean;
   do {
@@ -357,7 +401,7 @@ export async function rotateCode(userId: string, oldCode: string): Promise<strin
   // per followee (#214 R6). If it throws, the new code is orphaned in codeIndex
   // but the old code remains valid — user retries and the orphan is harmless.
   const updates: Record<string, unknown> = { [`users/${userId}/presence/code`]: newCode };
-  for (const entry of getFollowing()) {
+  for (const entry of liveFollowing) {
     updates[`users/${entry.userId}/followers/${userId}`] = newCode;
   }
   await update(ref(db), updates);
