@@ -248,6 +248,29 @@ Everything else about G10 is unchanged: `setFollowingEntry` still runs before
 `registerAsFollower`, no second existence check is introduced, and a refused
 write still throws.
 
+### 4.2 What the hoist costs — filed as M11
+
+The hoist is not free, and the cost is recorded rather than discovered later.
+
+Clearing `revocations/{redeemer}/{creator}` ahead of a write that **can be
+refused** means a *failed* redemption — creator purged between the
+`presence/code` read at `js/invites.ts:201` and `setFollowingEntry` landing —
+has already dropped the key. The redeemer's revocation watcher
+(`js/following.ts`) prunes a stale `following/{creator}` entry from the local
+list off exactly that key, so that cleanup no longer happens for this uid.
+
+The residue is a stale entry in the redeemer's **own** list: visible to them,
+and self-correcting on the next successful follow or unfollow of that uid. Set
+against the alternatives, the trade is not close — leaving the clear inside
+`registerAsFollower` reintroduces the silent auto-unfollow §4.1 exists to
+prevent, and reverting the G10 swap re-opens a permanent cross-user write under
+an account that no longer exists, which nothing sweeps.
+
+Filed as **M11** in `docs/operator-panel-followups.md` rather than fixed here:
+closing it means either having the refusal path restore the key, or having the
+watcher prune on a predicate other than the revocation key, and each is its own
+change with its own blast radius on the follow lifecycle.
+
 ## 5. Testing
 
 **`tests/db.test.js`**, in the existing `rotateCode` describe:

@@ -227,6 +227,12 @@ export async function redeemPersonalInvite(token: string, redeemerUid: string, r
   // follower row for. Clearing first is free of G10 risk because the key is in
   // the redeemer's OWN mailbox: it leaves nothing in the creator's subtree even
   // when the write below is refused.
+  //
+  // What that costs is filed as M11: when the write below IS refused, the key is
+  // already gone, so the watcher no longer prunes a stale following/{creator}
+  // entry off it. That residue sits in the redeemer's own list and self-corrects
+  // on their next follow or unfollow of this uid — unlike the cross-user row the
+  // ordering exists to prevent, which nothing ever sweeps.
   await clearRevocation(redeemerUid, creatorUid);
   await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
   await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);

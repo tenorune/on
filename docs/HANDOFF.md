@@ -140,7 +140,7 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Twelve open, nine closed** — all ranked with stable IDs in the "at a
+**Thirteen open, nine closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
@@ -148,7 +148,11 @@ sits in `.ops-audit/` beside the purge dumps). **G9 and G10 are now CLOSED**
 too (`728180d`, `4780b1f`) — see "What's next" above. Open: G1, **G3** and
 **G4** (known gaps — G3 is a whole-app rules gap, not a panel item; G4 came
 out of running the smoke test); **M10**, filed 2026-08-03 by the review that
-closed out G6's fix wave, from READING rather than from running; and M1–M8
+closed out G6's fix wave, from READING rather than from running; **M11**, filed
+the same day by the scoped re-review of this branch's final fix wave — the only
+open item created *by* a fix here rather than found in code that predated it
+(G10's revocation-clear hoist drops the watcher's cleanup of a stale own-side
+follow when the redemption is refused); and M1–M8
 (deferred minors, each with its `file:line` and why it was left; none of them
 affects the correctness of a destructive write, which is the test to
 re-apply before promoting one).
@@ -252,7 +256,7 @@ nothing deploys from sessions. **The merge-leg work adds nothing to that list** 
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M8, M10) is either an operator action
+What remains (G1, G3, G4, M1–M8, M10, M11) is either an operator action
 or explicitly deferred — none of it is unfinished build work. **G6, G9 and
 G10 are all CLOSED.**
 
