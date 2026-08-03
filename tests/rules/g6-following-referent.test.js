@@ -27,7 +27,7 @@ describe('userPrefs/$uid/following/$followee — the followee must exist', () =>
     // users/$uid/followers/$follower is writable BY the follower, so a peer's own
     // follower row creates the users/T node. A bare users/T.exists() predicate
     // would pass here, and registerAsFollower runs immediately before
-    // setFollowingEntry in js/following.ts:1508-1510, so it would pass every time.
+    // setFollowingEntry in js/following.ts:1518-1520, so it would pass every time.
     await seed(env, (db) => db.ref('users/T/followers/M').set('XK7P2M'));
     await assertFails(dbAs(env, 'M').ref('userPrefs/M/following/T').set(ENTRY));
   });
@@ -41,6 +41,12 @@ describe('userPrefs/$uid/following/$followee — the followee must exist', () =>
 
   test('rejects a write to a field UNDER the entry (validate does not run on ancestors)', async () => {
     await assertFails(dbAs(env, 'M').ref('userPrefs/M/following/T/label').set('Bea'));
+  });
+
+  test('rejects a write two levels below the entry ($field\'s $sub)', async () => {
+    // The $field copy closes exactly one level; without an explicit $sub rule
+    // a write here would be validated by nothing (M1).
+    await assertFails(dbAs(env, 'M').ref('userPrefs/M/following/T/label/x').set('Bea'));
   });
 
   test('leaves an unrelated prefs update alone while a dangling entry exists', async () => {

@@ -9,7 +9,8 @@
           "$followee": {
             ".validate": "root.child('users').child($followee).child('presence').child('code').exists()",
             "$field": {
-              ".validate": "root.child('users').child($followee).child('presence').child('code').exists()"
+              ".validate": "root.child('users').child($followee).child('presence').child('code').exists()",
+              "$sub": { ".validate": false }
             }
           }
         }
