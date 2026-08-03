@@ -137,6 +137,8 @@ jest.mock('../js/store.js', () => ({
     },
   }),
   setPaletteState: jest.fn(),
+  hasSeenServerFollowing: jest.fn(() => false),
+  markServerFollowingSeen: jest.fn(),
 }));
 jest.mock('../js/prefs.js', () => ({
   isHintSeen: jest.fn(() => false),
@@ -183,8 +185,8 @@ jest.mock('../js/groupNav.js', () => ({
   endGroupEntryTransition: jest.fn(),
 }));
 
-const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations, watchFollowerNames } = require('../js/db.js');
-const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, setFollowerName, removeFollowing } = require('../js/store.js');
+const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations, watchFollowerNames, setFollowingEntry } = require('../js/db.js');
+const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, setFollowerName, removeFollowing, hasSeenServerFollowing, markServerFollowingSeen } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount, isHintSeen } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
@@ -2633,6 +2635,69 @@ describe('syncFollowingFromServer event', () => {
     expect(setFollowing).not.toHaveBeenCalled();
     expect(onSynced).not.toHaveBeenCalled();
     document.removeEventListener('following-synced', onSynced);
+  });
+});
+
+// --- syncFollowingFromServer: the G6 push-up gate ---
+
+describe('syncFollowingFromServer push-up gate', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDom();
+  });
+
+  function initAndCaptureFollowingCallback() {
+    let followingCb;
+    watchFollowing.mockImplementation((_uid, cb) => { followingCb = cb; return jest.fn(); });
+    watchFollowers.mockImplementation(() => jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+    return (list) => followingCb(list);
+  }
+
+  test('pushes local entries up when this device has never seen a server list', () => {
+    getFollowing.mockReturnValue([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+    hasSeenServerFollowing.mockReturnValue(false);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([]);
+
+    expect(setFollowingEntry).toHaveBeenCalledWith('myUid', 'tgt', 'C1', 'Bea');
+    expect(setFollowing).not.toHaveBeenCalled();
+  });
+
+  test('prunes instead of republishing once a server list has been seen (G6)', () => {
+    getFollowing.mockReturnValue([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+    hasSeenServerFollowing.mockReturnValue(true);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([]);
+
+    expect(setFollowingEntry).not.toHaveBeenCalled();
+    expect(setFollowing).toHaveBeenCalledWith([]);
+  });
+
+  test('a non-empty server tick marks the device as having seen the list', () => {
+    getFollowing.mockReturnValue([]);
+    // Set explicitly: jest.clearAllMocks() clears calls, NOT implementations, so
+    // the previous test's mockReturnValue(true) would otherwise leak in here.
+    hasSeenServerFollowing.mockReturnValue(false);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+
+    expect(markServerFollowingSeen).toHaveBeenCalledWith('myUid');
+  });
+
+  test('an empty server tick with an empty local cache writes nothing', () => {
+    getFollowing.mockReturnValue([]);
+    hasSeenServerFollowing.mockReturnValue(false);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([]);
+
+    expect(setFollowingEntry).not.toHaveBeenCalled();
+    expect(markServerFollowingSeen).not.toHaveBeenCalled();
   });
 });
 
