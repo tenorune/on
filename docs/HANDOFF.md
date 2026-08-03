@@ -182,12 +182,16 @@ re-apply before promoting one).
 NOT close with G3, contrary to what this file used to say; see "What's next"
 above.
 **G5 is closed** (`0f31553`) and stays in that table with its reasoning, like G2,
-because *why it survived every review* is the useful part. It carries one open
-half, deliberately not done: `integrity.js` only catches residue families someone
-remembered to add to it, and a test asserting every own-account top-level node in
-`database.rules.json` is either in the expunge null-set or explicitly exempt would
-catch the NEXT relocation instead of the last one. Nothing else is owed on this
-branch.
+because *why it survived every review* is the useful part. **Its follow-up half
+is DONE, not open** — this file described it as "deliberately not done" long
+after it had shipped. `integrity.js` only catches residue families someone
+remembered to add to it, so the guard that catches the NEXT relocation instead
+of the last one is `functions/test/expunge-completeness.test.js` (`5f4dcd5`):
+it reads the top-level node list out of `database.rules.json`, requires every
+node to be classified into one of four buckets, and asserts every own-account
+node really is nulled at `{node}/{uid}`. Verified by planting three violations,
+not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
+landed; this file was the stale one. Nothing else is owed on this branch.
 
 **Branch status (2026-08-03): MERGED TO `dev` AND PUSHED, at the operator's
 explicit instruction.** `origin/dev` moved `22abc8a` → `8ad9ef0`, a `--no-ff`
