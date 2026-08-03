@@ -69,3 +69,51 @@ describe('userPrefs/$uid/following/$followee — the followee must exist', () =>
     await assertFails(dbAs(env, 'X').ref('userPrefs/M/following/T').set(ENTRY));
   });
 });
+
+// M11. setFollowingEntryClearingRevocation sends the revocation clear and the
+// following write as one multi-path update, and the whole fix rests on RTDB
+// applying that update all-or-nothing against these rules. jest can only prove
+// the client issues ONE update() call — whether a refusal on the userPrefs path
+// also rolls back the revocations path is a property of the database, not of
+// our code, so it is pinned here against the real rules engine.
+describe('M11 — a refused following write must not clear the revocation', () => {
+  const REVOKED = 'revocations/M/T';
+
+  test('the atomic update is rejected whole: the revocation key survives', async () => {
+    // T has no presence/code — the G6 guard refuses the userPrefs path. M is
+    // mid-redemption and its own mailbox still holds T's revocation.
+    await seed(env, (db) => db.ref(REVOKED).set(true));
+
+    await assertFails(dbAs(env, 'M').ref().update({
+      [REVOKED]: null,
+      'userPrefs/M/following/T': ENTRY,
+    }));
+
+    // The key is what M's revocation watcher uses to prune a stale server-side
+    // following/T entry. If the delete had landed while the guard refused the
+    // write beside it, that prune signal would be gone — M11.
+    const after = await dbAs(env, 'M').ref(REVOKED).get();
+    expect(after.val()).toBe(true);
+  });
+
+  test('the same update succeeds whole once the followee exists', async () => {
+    await seed(env, async (db) => {
+      await db.ref(REVOKED).set(true);
+      await db.ref('users/T/presence').set({ code: 'XK7P2M', status: 'unavailable', availableUntil: null });
+    });
+
+    await assertSucceeds(dbAs(env, 'M').ref().update({
+      [REVOKED]: null,
+      'userPrefs/M/following/T': ENTRY,
+    }));
+
+    // Both halves landed together — the watcher can never observe the new
+    // following entry while the revocation key is still there, which is the
+    // ordering invariant registerAsFollower documents, now held by
+    // construction rather than by sequencing.
+    const revocation = await dbAs(env, 'M').ref(REVOKED).get();
+    expect(revocation.exists()).toBe(false);
+    const entry = await dbAs(env, 'M').ref('userPrefs/M/following/T').get();
+    expect(entry.val()).toEqual(ENTRY);
+  });
+});

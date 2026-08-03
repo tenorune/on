@@ -310,6 +310,33 @@ export async function setFollowingEntry(myUserId: string, followeeUserId: string
   await set(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`), { code, label: label ?? '' });
 }
 
+// Start following someone, discarding any stale revocation they left in our
+// mailbox — as ONE atomic multi-path update, not two sequential writes.
+//
+// Both halves are load-bearing and the atomicity is what ties them:
+//  * the clear must not be observable AFTER the following write, or the
+//    redeemer's own revocation watcher (js/following.ts) sees the fresh entry
+//    while revocations/{me}/{followee} still exists and auto-unfollows it —
+//    the invariant registerAsFollower's comment documents;
+//  * the clear must not SURVIVE a refused following write, or a redemption the
+//    G6 rules guard refuses has dropped the very key that watcher uses to prune
+//    a stale following/{followee} entry (M11).
+// Sequencing can satisfy one or the other, never both. One update satisfies
+// both by construction: RTDB applies it whole or not at all, so a refusal on
+// the userPrefs path leaves the revocation key exactly where it was.
+//
+// Deliberately NOT folded into setFollowingEntry itself: a label rename
+// (js/following.ts) and the presence-driven republish both call that, and
+// clearing a revocation there would resurrect a follow the followee ended.
+export async function setFollowingEntryClearingRevocation(
+  myUserId: string, followeeUserId: string, code: string, label?: string | null,
+): Promise<void> {
+  await update(ref(db), {
+    [`revocations/${myUserId}/${followeeUserId}`]: null,
+    [`userPrefs/${myUserId}/following/${followeeUserId}`]: { code, label: label ?? '' },
+  });
+}
+
 export async function removeFollowingEntry(myUserId: string, followeeUserId: string): Promise<void> {
   await remove(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`));
 }
