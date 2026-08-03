@@ -208,8 +208,15 @@ export async function redeemPersonalInvite(token: string, redeemerUid: string, r
   // redeemerName (the redeemer's own display name — Telegram first name) rides
   // along so the creator's followers list can show "CODE (Name)" for a follow
   // that never went through a follow-request approval to teach them the name.
-  await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
+  // G10: the refusable write goes FIRST. The creator's presence/code was read
+  // at :201, but they can be purged between that read and these writes; in
+  // that window the G6 rules guard refuses setFollowingEntry, and running it
+  // first means registerAsFollower never writes users/{creator}/followers/{me}
+  // (plus its followerNames sibling) for an account that is gone. The refusal
+  // propagates as a throw rather than becoming reason: 'creator-missing' —
+  // "that invite is dead" and "couldn't check" are different answers (W1 J#1).
   await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
+  await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
   await incrementInviteRedemptions(creatorUid, token);
 
   return { ok: true, creatorUid, creatorCode, creatorLabel: invite.creatorLabel || '' };

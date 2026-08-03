@@ -340,6 +340,41 @@ describe('redeemPersonalInvite', () => {
     expect(result).toEqual({ ok: false, reason: 'creator-missing' });
   });
 
+  test('G10: the refusable follow write runs before the creator-side follower row', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const order = [];
+    db.setFollowingEntry.mockImplementation(async () => { order.push('setFollowingEntry'); });
+    db.registerAsFollower.mockImplementation(async () => { order.push('registerAsFollower'); });
+
+    await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
+
+    // setFollowingEntry is the write the G6 rules guard can refuse. It has to
+    // resolve first, or a creator purged after the :201 read keeps a follower
+    // row for someone who is not, and can never become, following them (G10).
+    expect(order).toEqual(['setFollowingEntry', 'registerAsFollower']);
+  });
+
+  test('G10: a refused follow writes nothing into the creator subtree and does not bump the counter', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.setFollowingEntry.mockRejectedValue(new Error('PERMISSION_DENIED'));
+
+    await expect(redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set()))
+      .rejects.toThrow('PERMISSION_DENIED');
+
+    expect(db.registerAsFollower).not.toHaveBeenCalled();
+    // Settles the followups entry's claim that the counter still increments:
+    // incrementInviteRedemptions sits behind the await that throws.
+    expect(db.incrementInviteRedemptions).not.toHaveBeenCalled();
+  });
+
   test('accepts a null alreadyFollowingSet without throwing', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
     db.readUserInvite.mockResolvedValue({
