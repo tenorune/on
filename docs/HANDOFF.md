@@ -11,9 +11,30 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
+**THERE IS A BUILD QUEUE, AND IT IS THE FIRST THING TO READ.** Every open item
+was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. The queue lives
+in `docs/operator-panel-followups.md` under **"The next session's queue"**,
+directly beneath the at-a-glance table, with what to read before starting each:
+
+| | | |
+|---|---|---|
+| **G4** | name the cascades the purge preview will trigger, so an operator sees them before approving | the FIRST of that entry's two candidates — **not** the pre-image one |
+| **M12** | tie the G6 `presence/code` predicate to `followeeExists` so the two cannot drift | |
+| **M8** | make `adoptGroupNames` reachable from the browser | UI half only; server + merge already exist |
+| **M5** | cap the audit filename-collision retry | rides one commit with M4 |
+| **M4** | test the non-`EEXIST` rethrow | coverage; the branch is already correct |
+| **M3** | take the canvas-key split from the shared helper | |
+
+**WON'T FIX: G1, M1, M2, M6, M7.** Ruled, with the reason restated on each — not
+open questions. Raise it before working one, not after.
+
+**G3 IS PARKED** as [#302](https://github.com/tenorune/on/issues/302) —
+spec-first work, not started, deliberately outside that queue. Picking it up is
+its own decision.
+
 **THE SMOKE TEST IS COMPLETE. All ten steps of
 `docs/operator-panel-smoke-test.md` pass, and S1 is CLOSED** — so nothing blocks
-pointing the panel at production data any more. **No build work is owed.**
+pointing the panel at production data any more. **No operator run is owed.**
 
 **THE OPERATOR-FACING LIST IS EMPTY.** Every live merge path, every branch of
 `buildMappingTeardown`, and both of the panel's last never-seen renderings ran on
@@ -201,7 +222,40 @@ node really is nulled at `{node}/{uid}`. Verified by planting three violations,
 not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
 landed; this file was the stale one. Nothing else is owed on this branch.
 
-**Branch status (2026-08-03): MERGED TO `dev` AND PUSHED, at the operator's
+**Branch status (2026-08-03, LATEST): `claude/g3-revocation-timeout-eabaf4`
+MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.**
+`origin/dev` moved `7e9a36b` → `dadb529`, a `--no-ff` merge commit matching
+`dev`'s own history (`d47fbbb`, `8ad9ef0`, `d5c7a53` are the same shape;
+fast-forward was available and deliberately not taken). Ten commits. Working
+tree clean, nothing unpushed. The feature branch is fully contained in `dev` and
+is now redundant — kept, not deleted, like its predecessors.
+
+⚠️ **That push DEPLOYED to the dev project.** `deploy-dev.yml` fires on push to
+`dev` and runs `firebase deploy --only hosting,database,functions`, ungated.
+This merge moves `js/db/social.ts` and `js/invites.ts`, so **M11's atomic
+revocation-clear is live on dev**. `database.rules.json` is unchanged by this
+work — the rules movement was test-only — and `functions/` is unchanged.
+Undeployed to **prod** until `dev` → `main`, which is the maintainer's and is
+gated by `deploy-prod.yml`'s `environment: production` reviewer.
+
+What the merge carried:
+
+| | |
+| --- | --- |
+| `99cf3ea` | **G3** parked as #302; both docs cross-referenced |
+| `93966c0` | the deploy framing corrected — CI ships `dev` on push, ungated |
+| `4b991fe` | the G6 review's M-numbers disambiguated from the ledger's stable IDs |
+| `a9c11cf`+`c837cb1` | **M10** + **M11** closed — see the verification bar below |
+| `6ae0d4e` | M10/M11 recorded closed; the two G6 residuals ruled OUT OF SCOPE |
+| `23d1cf1` | **G1**'s severity corrected DOWN; `statusOverride` named |
+| `b3acd3a` | the doc-claim audit — **M12** filed, G9's claim retracted, two loose claims tightened |
+| `870c3b0` | the operator's rulings on every open item, and the build queue |
+
+**Prior branch status (2026-08-03): `claude/knockknock-g6-g9-fixes-lt02a8`
+merged**, `origin/dev` `6c45ff5` → `d47fbbb`, then `7e9a36b` reconciled the
+handoff. Everything below this line describes that earlier wave.
+
+**Branch status (2026-08-03, earlier): MERGED TO `dev` AND PUSHED, at the operator's
 explicit instruction.** `origin/dev` moved `22abc8a` → `8ad9ef0`, a `--no-ff`
 merge commit matching `dev`'s own history (`d5c7a53` is the same shape;
 fast-forward was available and deliberately not taken). Nothing uncommitted,
@@ -260,9 +314,14 @@ for. Older branches
 (`claude/smoke-test-merge-leg-87l2w1`, `claude/operator-panel-step-9-z31g3w`,
 `claude/knockknock-smoke-test-9-10-1zohil`,
 `claude/knockknock-ui-improvements-7bm5o9`) carry nothing unique and are
-redundant, and `claude/knockknock-operator-followups-1kyjy6` and
-`claude/knockknock-g6-g9-fixes-lt02a8` now join them.
-**`dev` is 92 ahead of `origin/main`.**
+redundant, and `claude/knockknock-operator-followups-1kyjy6`,
+`claude/knockknock-g6-g9-fixes-lt02a8` and now
+`claude/g3-revocation-timeout-eabaf4` join them.
+**`dev` was 93 ahead of `origin/main` before this merge; it is now further
+ahead by the ten commits above plus the merge commit.** The exact figure is
+UNVERIFIED this session — `git fetch --unshallow origin` fails on proxy auth in
+a fresh container, so `origin/main` is not fetched and no cross-branch count can
+be computed. Do not quote a number you have not recomputed.
 
 **These seventeen touch TWO deploy surfaces, and neither is the functions
 one.** `ops/**` is excluded from the functions archive, so G8
@@ -394,6 +453,14 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**GREEN BAR OBSERVED ON THE MERGED RESULT at `dadb529` — `dev`'s tip, not the
+branch's (2026-08-03):** web jest **2146/2146** (88 suites) · rules (emulator)
+**118/118** (12 suites) · functions **941/941** (32 suites) · `typecheck` +
+`typecheck:scripts` clean · `node scripts/prod.js` builds. Run after the merge
+on purpose: a green run on the branch only proves the branch. The same five were
+green at the branch tip `870c3b0` beforehand, on a fresh container after the
+documented `npm ci`.
 
 **M10 + M11 closure, green bar OBSERVED (2026-08-03)** on
 `claude/g3-revocation-timeout-eabaf4`, on a FRESH container after the
