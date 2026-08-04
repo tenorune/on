@@ -15,12 +15,24 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Six open, seventeen closed — **the whole build queue closed on 2026-08-03**
-(G4, M12, M5, M4, M3, M8) — and every open item has been ruled: **nothing left
-to DO**, five WON'T FIX (G1, M1, M2, M6, M7), one (G3) parked as #302. The rulings are stamped in
+Eight open, seventeen closed — **the whole build queue closed on 2026-08-03**
+(G4, M12, M5, M4, M3, M8). Six of the eight are ruled: five WON'T FIX (G1, M1,
+M2, M6, M7) and one (G3) parked as #302. The rulings are stamped in
 the Weight column below and on each entry, and the build order is in
 "The next session's queue" directly under this table. **Read the queue rather
 than this table if you are here to work.**
+
+⚠️ **TWO ARE UNRULED — M13 and M14, both filed 2026-08-04.** This table read
+"every open item has been ruled: nothing left to DO" from 2026-08-03 until
+they arrived, and that sentence is now false rather than merely dated. Both
+came out of deriving `docs/smoke-test-2026-08-04.md` against the code — from
+reading, not from running anything — and **neither has been put to the
+operator**. A ruling is theirs; filing is not one. Until they are ruled, "the
+ledger is empty" is not a true statement about this file, and a session that
+reads the 2026-08-03 queue below and concludes nothing is open has missed
+them: that queue is a dated record of six items that shipped, not a current
+inventory. Both sit in the "Deferred minors" table at the bottom with their
+`file:line` and the evidence.
 
 **M10 and M11 were the newest closed items before G4** (2026-08-03) — both G6-descended, both closed after the G3 park; see their entries below. **G8 was the newest closed item before them** — found on
 2026-08-03 by running the residue recipe, and closed the same day. **G9 and
@@ -93,6 +105,8 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **M10** | ~~The G6 rules test types the guarded path by hand, untied to what `setFollowingEntry` writes~~ | `tests/db.test.js` | **CLOSED** — jest now pins the path the client builds; see below |
 | **M11** | ~~G10's fix clears the revocation before a write that may be refused, so a failed redemption drops the watcher's cleanup of a stale own-side follow~~ | `js/db/social.ts`, `js/invites.ts` | **CLOSED** — the clear and the write are now one atomic update; see below |
 | **M12** | ~~The G6 `presence/code` predicate is written twice — once in the rules, once in `followeeExists` — with nothing tying them~~ | `js/db/social.ts` + `database.rules.json` | **CLOSED** — a jest guard derives the node path FROM the rules predicate and pins `followeeExists` to it; see below |
+| **M13** | The merge leg's verifier encodes pre-M8 behaviour, so an adopted merge reports a FALSE failure | `ops/merge-fixture.js:469` | **OPEN — filed 2026-08-04, UNRULED.** Verifier correctness, and this repo has a precedent (`2dec78c`) for taking that seriously; see below |
+| **M14** | The merge fixture seeds `presence/code` values SEC-1's charset rule forbids | `ops/merge-fixture.js` (`fixtureCodes`) | **OPEN — filed 2026-08-04, UNRULED.** Fixture realism, not a merge defect — Admin-SDK writes bypass rules; see below |
 
 ---
 
@@ -107,6 +121,14 @@ queue is empty; what is left open in this file is the five WON'T FIX rulings
 section below holds no others: every entry there is now CLOSED or is one of
 those four M-items. A ruling is the operator's; if you think one is wrong, say so
 before working it rather than working it anyway.
+
+⚠️ **Correction (2026-08-04): the paragraph above is a DATED RECORD of the
+2026-08-03 rulings, and its last claim has since gone false.** "The deferred
+minors section below holds no others" was true when written; **M13 and M14**
+were filed on 2026-08-04 and are in that section, unruled. Everything else here
+still stands — the six shipped, the five WON'T FIX rulings hold, G3 stays
+parked. Read the "at a glance" table above for the current inventory; this
+section is history, not a menu, and it is deliberately not rewritten.
 
 ### DO — in rough order of value
 
@@ -1042,6 +1064,25 @@ mis-filed* is the useful part: it was recorded as a minor because that was the
 namespace it arrived in, not because anyone judged it one, and the row said so
 rather than letting the section heading stand as a verdict.
 
+⚠️ **M13 and M14 are NEW (2026-08-04) and are NOT "judged fine to leave" — they
+are UNRULED.** They sit in this table because it is where minors live, not
+because the section heading applies to them yet; M9's row is the precedent for
+saying so out loud rather than letting the heading stand as a verdict. Both came
+out of deriving `docs/smoke-test-2026-08-04.md` against the code — the run that
+found them wrote no test and executed nothing, which is worth noting as a method
+result: they are what re-deriving a prescription against the code you find turns
+up, the same lesson the security audit recorded four times.
+
+**Apply the section's own test carefully to M13.** Neither M13 nor M14 affects
+the correctness of a destructive *write*. M13 affects the correctness of the
+**read-back that certifies** one, and this repo has already been bitten there:
+`2dec78c` — the merge verifier reporting a CORRECT merge as owed — is recorded
+in `docs/operator-panel-smoke-test.md` next to the production defects rather
+than as a tooling nit, on the reasoning that *a verifier that cries wolf on a
+correct destructive write is worse than no verifier, since the operator's next
+move is to hunt a defect that is not there.* M13 is that shape exactly, with a
+known trigger. Whether that promotes it is the operator's call, not this file's.
+
 | ID | Where | What | Why it was left |
 |---|---|---|---|
 | **M1** | `ops/types.d.ts:26-38` | Snapshot nodes are typed `Record<string, any>` and never optional, so "the node is absent" and "the node is present but empty" are the same type. | **WON'T FIX** (2026-08-03). Consumers do not trust the type here — they use a runtime key-count check. Tightening it would be a type-level improvement over code that already guards at runtime. |
@@ -1056,6 +1097,8 @@ rather than letting the section heading stand as a verdict.
 | **M10** — **CLOSED** | `tests/db.test.js`, `tests/rules/g6-following-referent.test.js` | The G6 rules suite's guarded path (`userPrefs/M/following/T`) was typed by hand in the test, with nothing tying it to the path `setFollowingEntry` actually writes. The design spec's §7 asked for that case to be "exercised through `setFollowingEntry` itself" — the client half honoured the equivalent requirement (through the `watchFollowing` callback), the rules half did not. A refactor of that one line in `js/db/social.ts` would have left the guard sitting on a path nothing writes, with the rules suite still green and nobody told. Filed as **G6-review finding M6** (that review's own numbering, not this file's stable **M6**). | **Closed** by three jest cases in `tests/db.test.js` pinning what `setFollowingEntry` builds: the exact path `userPrefs/{me}/following/{followee}`, the `{ code, label }` value, and `label ?? ''` for a null label. The rules suite cannot import `js/db/social.ts` — it runs against the emulator, not jsdom — so the tie is a test on the *client* side plus a header comment in the rules file naming its counterpart in both directions. `setFollowingEntry` was mocked in seven suites and asserted in none, which is why nothing caught this. Each case verified by planting a violation that turns exactly that one red (path drift, dropped label key, mangled label value); `js/db/social.ts` byte-identical after the reverts. |
 | **M11** — **CLOSED** | `js/db/social.ts`, `js/invites.ts` | G10's fix hoisted `clearRevocation(redeemerUid, creatorUid)` ahead of `setFollowingEntry`, the write the G6 rules guard can refuse. When that write IS refused — the creator purged between the `presence/code` read at `:201` and the write landing — the key was already gone, and the redeemer's revocation watcher uses exactly that key to prune a stale `following/{creator}` entry. So a *failed* redemption could leave a stale own-side follow. ⚠️ **Correction to the original entry:** it said the watcher prunes from the **local** list, which made the case look unreachable — `attemptRedeemFromUrl` bails with `already-following` when the local list holds the creator, so the clear is never reached. The reachable shape is a **server-side** `userPrefs/{redeemer}/following/{creator}` the watcher's own `removeFollowingEntry(...).catch(() => {})` failed to delete: local pruned, server stale, key still present and re-arming the prune each time the local list resyncs from the server. Clearing the key ends that loop. | **Closed** by `setFollowingEntryClearingRevocation` (`js/db/social.ts`), which issues the revocation clear and the following write as **one multi-path `update()`**. Neither of the two fixes this entry originally proposed was taken: restoring the key on the refusal path needs an extra `get` per redemption to avoid fabricating a revocation that never existed, and re-predicating the watcher touches every revocation rather than this one. Atomicity subsumes both constraints — the watcher cannot observe the entry while the key is present (G10's invariant, now by construction rather than by sequencing), and a refusal leaves the key exactly where it was (M11). Deliberately **not** folded into `setFollowingEntry` itself: a label rename and the presence-driven republish both call that, and clearing a revocation there would resurrect a follow the followee ended. ⚠️ This **replaced** a regression test — "the revocation clear resolves before the following write" (`4780b1f`/`da8a3a2`) — because the redemption path no longer calls `clearRevocation` at all; the new property is strictly stronger, and the substitution is recorded in the test body. RTDB's all-or-nothing behaviour is the load-bearing assumption and jest cannot see it, so it is pinned on the **rules emulator** (2 cases): a refused following path leaves `revocations/M/T` intact, and the same update lands whole once the followee exists. |
 | **M12** — **CLOSED** | `js/db/social.ts` + `database.rules.json`, guard in `tests/db.test.js` | The G6 referential predicate exists in two independent hand-written copies. The rules say `root.child('users').child($followee).child('presence').child('code').exists()`; `followeeExists` says `get(ref(db, \`users/${userId}/presence/code\`))`. Nothing ties them. Change the rules to key on a different node and the client keeps probing the old one, with the rules suite, the jest suite and both typechecks green. `rotateCode`'s G9 filter and `js/followRequests.ts`'s I1 check both route through `followeeExists`, so a drift silently un-mirrors the guard for every client-side caller at once. | **CLOSED (2026-08-03)** by the first of its two routes: three jest cases in `tests/db.test.js` ("followeeExists — the predicate the G6 rules guard enforces") that PARSE `userPrefs/$uid/following/$followee`'s `.validate` out of `database.rules.json`, derive the node path from it, and assert `followeeExists` probes exactly that node — plus a case pinning the rules file's own two copies (`$followee` and `$field`) to each other, so a half-applied edit cannot slip through. The second route (hoist the path to a `shared/` constant) was NOT taken: the rules file is JSON and cannot import, so it would have meant generating the rules from a template — a build step for one string. The parser is deliberately strict: a predicate that stops being a plain `root.child(…).exists()` chain throws with a named cause rather than being best-guessed, because that rewrite is a change to what the guard MEANS and has to be read by a human. Cross-references at `followeeExists`, at `rotateCode`'s G9 filter (whose "cannot drift apart" wording is corrected in place — what stops the drift is this test, not the sharing of a client-side function) and in the rules suite's header. Verified by planting four violations: the client probing `presence` instead of `presence/code` (2 red), the rules keying on a different node (1), only the `$field` copy edited (1), and the predicate rewritten to `hasChild` (1); both files byte-identical after the reverts. ⚠️ **What it does not cover:** `getCreatorCode` (`js/db/social.ts`) reads the same node and its non-null result gates invite redemption, but it reads it for its VALUE — the code that goes into the following entry — and would still read `presence/code` if the guard's predicate moved elsewhere, so tying it would manufacture a false failure. It is a third copy of the string, not a third copy of the predicate. |
+| **M13** — **OPEN, UNRULED** | `ops/merge-fixture.js:469`, `ops/verify-merge.js` | The merge leg's read-back encodes **pre-M8** behaviour. The claim reads `groups/{GB}/members/{S}/displayName` `equals` `'S in GB'`, with the rationale *"the shared group is a collision and the survivor's record wins — **panel.html sends no adoptGroupNames**"*. That rationale was true when written and is false since **M8** (`17945c3`), which is exactly what `panel.html` now sends. `verify-merge.js` has no `--adopt` flag and no way to be told the operator ticked, so a merge executed **with** an adoption ticked reports **56 of 57** — one FALSE failure, on the leg whose entire purpose is telling real residue from noise. The stale half is the comment as much as the assertion: a reader who checks *why* the claim is what it is gets told the panel cannot do something it has done since 2026-08-03. | **Filed 2026-08-04, not ruled.** Found by reading `merge-fixture.js` against `panel.html` while deriving the M8 step of `docs/smoke-test-2026-08-04.md`; nothing was run, and the false failure has **never been observed** — it is derived from the two files, which is a weaker claim than a sighting and is why the smoke test's C4 step offers both variants and asks the operator to record which they ran. ⚠️ **Do not read `56 of 57` as a merge defect** if you meet it before this is fixed; confirm the one failing value is the LOSER's per-group name, which is M8 working. Two candidate fixes, and the cheap one is not obviously right: (a) correct the comment only — honest, one line, and leaves the false failure in place for anyone who ticks; (b) give the fixture an adoption-aware expectation and `verify-merge.js` a flag to select it — closes the false failure, and costs a new flag on a CLI whose flag surface is already the thing operators get wrong (`--telegram` / `--repoint` / `--mapping-shape`). Cost (b) honestly before reaching for it; the ledger's own test — does it affect the correctness of a destructive write? — says **no**, but see the `2dec78c` precedent noted above this table. |
+| **M14** — **OPEN, UNRULED** | `ops/merge-fixture.js` (`fixtureCodes`) | The fixture seeds `presence/code` values that the **SEC-1** charset rule forbids. `fixtureCodes` builds `` `SMK${tag}${role}` `` and the tag is validated `^[a-z0-9]{1,16}$`, so every seeded code carries lowercase — `SMKrun1L`, `SMKrun1P1`, and so on for all six accounts — while `database.rules.json:25` has required `^[A-Z0-9]{1,32}$` since SEC-1 (`1ae38a8`). Seeding still works and the merge leg is unaffected, both for the same reason: the Admin SDK bypasses rules entirely. What is lost is **realism** — the fixture now writes a database state no client could produce, so those accounts cannot be used to exercise any rules-validated client write, and a future fixture path that goes through a client (or through the emulator) fails for a reason that has nothing to do with the merge under test. | **Filed 2026-08-04, not ruled.** Derived by running `fixtureCodes('run1')` and testing each output against the shipped rule; every one is invalid, and by construction rather than by luck — the tag regex is lowercase-only, so no tag produces a valid code. **The same shape as the audit's own lesson, running the other way:** a *fixture* written before a rule describes the world without that rule, just as a prescription written before its dependency does. SEC-1 shipped 2026-08-04, the fixture 2026-08-03, and nothing connects them — no test asserts the fixture's own writes satisfy the rules it seeds under. The one-line fix is to upper-case the tag inside `fixtureCodes` (`` `SMK${tag}${role}`.toUpperCase() ``), which changes every seeded code and therefore every `--clean` derivation — so it is **not** safe to apply while a seeded fixture is live on dev; clean first, or the old codes strand. A guard asserting the fixture's write-set satisfies `database.rules.json` is the larger and more durable version, and is the one that catches the next rule. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is
 insufficient — `/** @type {any} */` is the same escape hatch in JSDoc and slipped
