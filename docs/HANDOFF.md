@@ -11,6 +11,23 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
+**START HERE (2026-08-04): SEC-2, the first open item in the security-audit
+roadmap.** A security review of the `origin/main` → `dev` diff (the operator
+panel and everything descended from it) ran this session. It produced one real
+security finding — **SEC-1**, the `presence/code` → `codeIndex` charset +
+ownership gap — which is **FIXED and pushed on this branch**
+(`claude/knockknock-revoked-sessions-im20og`, commits `1ae38a8` + `e9e6dd6`,
+**not merged** — maintainer's call). Everything else the audit surfaced is
+itemized, forward-first, in **`docs/security-audit-2026-08-04-roadmap.md`** —
+that doc is the source of truth for SEC-2…SEC-8, not this section. Next session
+starts **SEC-2** (the `uid:"/"` path-collapse guard defeat — a High-severity
+*robustness* defect, operator-only, not a security finding), per the roadmap's
+suggested sequencing. NB the sequencing note: **SEC-4 is the only remaining item
+on a deployed surface** (`functions/telegram-shared.js`); SEC-2/3/5/6/7/8 are
+`ops/**`, `.gitignore`, or docs and ride no deploy. G3/#302 stays parked and
+out of scope — do **not** fold SEC-6 into it (they are different mechanisms; see
+the roadmap's SEC-8).
+
 **THE BUILD QUEUE IS DONE AND MERGED. NOTHING IS IN FLIGHT.** All six items
 ruled on 2026-08-03 — G4, M12, M5, M4, M3, M8 — are built, verified and merged
 to `dev` (`aa7322b`); `origin/dev` = `aa7322b`, working tree clean. **There is
