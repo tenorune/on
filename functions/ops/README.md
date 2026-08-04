@@ -129,7 +129,7 @@ Two caveats the file states for itself:
   That is deliberate: the dropped descendants are exactly the values that die
   with no other record.
 
-### Why purge ends the session
+### Why a destroy ends the session
 
 Observed on dev, 2026-08-02: a purge deleted `userPrefs/{uid}` and the account's
 still-signed-in client put the node straight back, holding the same `following`
@@ -145,10 +145,22 @@ revoke fails the purge is refused outright: a purge that will be undone is worse
 than one that did not happen, because the operator walks away believing it
 worked.
 
+**All three destroying routes do this, since SEC-6.** Nothing above is specific
+to purge — merge and "link as production" remove an account through the *same*
+expunge enumerator, so they carry the same race, and until SEC-6 neither
+revoked anything at all. They now share ONE implementation (`endSession` in
+`ops/server.js`), because a fail-closed guard that drifts between three routes
+is the defect coming back. The revoked uid is always the one being **removed**:
+purge's target, the merge **loser** (including "link via merge"), the
+production link's **derived** account. The account that survives keeps its
+session — it is the point of the operation. Everything below — the G8
+allowlist, what revoking does not do — applies to all three.
+
 **One failure is benign and does not refuse (G8):** `auth/user-not-found`, which
 is what Firebase Auth throws for a uid it has never seen. No Auth record means no
-session, so there is nothing to outlive the write — the purge proceeds and the
-panel shows a `NO AUTH RECORD` note saying so. This is the ordinary case for a
+session, so there is nothing to outlive the write — the operation proceeds and
+the panel shows a `NO AUTH RECORD` note saying so (on a merge too, since
+SEC-6; before it, a merge of a synthetic account said nothing at all). This is the ordinary case for a
 **synthetic** account: everything `ops/seed-merge-fixture.js` writes is RTDB-only,
 and until 2026-08-03 the unguarded revoke made those accounts impossible to purge
 through the panel at all — the accounts this runbook tells you to seed precisely
@@ -447,6 +459,15 @@ Four things worth knowing before the first run:
   (a *peer's* client republishes cross-user residue permanently, with no
   mitigation). Nothing seeded here is ever opened in a client, so on this leg
   both have no author.
+
+  **G3 is the right name for this only since SEC-6.** Until then merge and
+  "link as production" revoked *nothing* — the parenthetical above describes a
+  session that was revoked, and on these two legs none was, so the window was
+  not an hour but unbounded. Both routes now revoke the account they remove,
+  the same way purge has since 2026-08-02, which is what puts this leg under
+  G3 rather than under something worse. G3/[#302](https://github.com/tenorune/on/issues/302)
+  itself is untouched and still parked: it is the *rules* gap that makes an
+  already-issued token outlive its revoke, and no revoke anywhere closes it.
 * **Expect exactly one integrity finding per seeded uid** — `auth-missing`,
   severity INFO, an RTDB user with no Auth record. The seed is otherwise
   self-consistent by construction, so the report should be clean of errors and
@@ -480,10 +501,10 @@ against the resulting tree, so the two lists cannot drift away from `merge.js`.
 
 | Action | What it destroys |
 | --- | --- |
-| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, **its push tokens**, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. For a group it owned it also releases that group's **id-index lock** and the index rows of **every invite issued in it, whoever issued them** — the records die with the group either way. It **revokes the account's refresh tokens** before the write. With `deleteAuthRecord`, the Auth record goes too — opt-in, and the one thing here no pre-image can undo. Neither the revoke nor the delete prevents the account existing again at the same uid on next app open; both only stop an already-open client republishing its cache. See "Why purge ends the session". |
-| **merge** | the loser account. Contacts, group memberships and per-group display names, canvases, durable mailboxes and push tokens are carried to the survivor; `knocks`/`calls` are dropped as transient. Conflicts (a group both are in, a per-group name on both sides) are listed in the preview with the resolution the plan will take. |
-| **link via merge** | **nothing.** This is the non-lossy link: the same merge path with the Telegram mapping repointed at the survivor, so contacts, groups, per-group names and canvases all transfer. **Prefer it.** |
-| **link as production** | the Telegram-derived account, exactly as the shipped `performLink` would — expunge, then link. Production's own gate only counts followers/following/groups, so it is silent about owned groups, canvases, redeemed invite tokens and durable mailboxes. Use it only when the impact report says `safe`. |
+| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, **its push tokens**, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. For a group it owned it also releases that group's **id-index lock** and the index rows of **every invite issued in it, whoever issued them** — the records die with the group either way. It **revokes the account's refresh tokens** before the write. With `deleteAuthRecord`, the Auth record goes too — opt-in, and the one thing here no pre-image can undo. Neither the revoke nor the delete prevents the account existing again at the same uid on next app open; both only stop an already-open client republishing its cache. See "Why a destroy ends the session". |
+| **merge** | the loser account. Contacts, group memberships and per-group display names, canvases, durable mailboxes and push tokens are carried to the survivor; `knocks`/`calls` are dropped as transient. Conflicts (a group both are in, a per-group name on both sides) are listed in the preview with the resolution the plan will take. It **revokes the loser's refresh tokens** before the write, and only the loser's — the survivor is the point of the operation and keeps its session. Same guarantee and same two limits as purge's revoke, below. |
+| **link via merge** | **nothing** of the account's data. This is the non-lossy link: the same merge path with the Telegram mapping repointed at the survivor, so contacts, groups, per-group names and canvases all transfer. **Prefer it.** It runs through `merge/execute`, so the loser's **refresh tokens are revoked** like any other merge — the *data* is not lost, but that uid's session still ends. |
+| **link as production** | the Telegram-derived account, exactly as the shipped `performLink` would — expunge, then link. Production's own gate only counts followers/following/groups, so it is silent about owned groups, canvases, redeemed invite tokens and durable mailboxes. Use it only when the impact report says `safe`. It **revokes the derived account's refresh tokens** before the write; the phrase account receives the link and keeps its session. |
 
 The panel's impact report is deliberately stricter than production's gate:
 `safe` requires contacts, groups, canvases, invite tokens, durable mailboxes and

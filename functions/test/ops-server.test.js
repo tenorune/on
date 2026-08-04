@@ -600,6 +600,163 @@ describe('purge ends the purged account\'s session', () => {
   });
 });
 
+// SEC-6, parity. Three routes destroy an account; only purge ended its session.
+// The mechanism is purge's, verbatim — a client that was open when the write
+// landed republishes its cache into the nodes the write just cleared, and the
+// rules let that session write users/{uid} and userPrefs/{uid} whichever route
+// removed them. Merge and the production link are NOT a smaller case of this:
+// they are the same case with no revoke at all. This is hardening, not a
+// security finding — the only actor is the authorized operator, and revoking
+// does not retire the uid either way (it is re-derivable, so the account
+// returns on next open; only an already-open client is stopped).
+describe('every route that destroys an account ends its session (SEC-6)', () => {
+  test('merge/execute revokes the LOSER before the destructive write', async () => {
+    const { routes, events, auth } = harness();
+    const { nonce } = await routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    await routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce,
+    });
+
+    expect(auth.revokeRefreshTokens).toHaveBeenCalledWith('L');
+    // Order, for purge's reason: after the write there is a window in which the
+    // loser's client puts back exactly what the merge just carried away.
+    expect(events.indexOf('revoke:L')).toBeLessThan(events.indexOf('rootUpdate'));
+  });
+
+  // The survivor is the point of the operation and keeps its session. Revoking
+  // it would sign the operator's own consolidated account out for no reason.
+  test('merge/execute does NOT revoke the survivor', async () => {
+    const { routes, auth } = harness();
+    const { nonce } = await routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    await routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce,
+    });
+
+    expect(auth.revokeRefreshTokens).toHaveBeenCalledTimes(1);
+    expect(auth.revokeRefreshTokens).not.toHaveBeenCalledWith('S');
+  });
+
+  test('a revoke failure refuses the merge, and nothing is written', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ auth: makeAuthStub(evs, { failRevoke: true }) });
+    const { nonce } = await h.routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    await expect(h.routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce,
+    })).rejects.toThrow(/revoke|session/i);
+    expect(h.events).not.toContain('rootUpdate');
+  });
+
+  // The G8 allowlist, and it matters MORE here than on purge: every account
+  // ops/seed-merge-fixture.js writes is RTDB-only, and the merge leg of the
+  // smoke test is run against exactly those. A bare revoke would refuse the
+  // whole documented merge rehearsal.
+  test('a loser with no Auth record is merged, not refused, and the panel is told why', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ auth: makeAuthStub(evs, { noAuthRecord: true }) });
+    const { nonce } = await h.routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    const res = await h.routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce,
+    });
+
+    expect(h.events).toContain('rootUpdate');
+    expect(res.sessionNote).toMatch(/no auth record/i);
+  });
+
+  // Only user-not-found is benign. Anything else is a revoke that should have
+  // worked and did not — G2's case, on a route that destroys an account.
+  test('a revoke that fails for any other reason still refuses the merge', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const auth = makeAuthStub(evs, {});
+    auth.revokeRefreshTokens = jest.fn(async () => {
+      throw Object.assign(new Error('backend unavailable'), { code: 'auth/internal-error' });
+    });
+    const h = harness({ auth });
+    const { nonce } = await h.routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    await expect(h.routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce,
+    })).rejects.toThrow(/revoke|session/i);
+    expect(h.events).not.toContain('rootUpdate');
+  });
+
+  test('merge refuses outright when no auth handle is wired', async () => {
+    const { routes, events } = harness({ omitAuth: true });
+    const { nonce } = await routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    await expect(routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce,
+    })).rejects.toThrow(/auth/i);
+    expect(events).not.toContain('rootUpdate');
+  });
+
+  test('link/production/execute revokes the DERIVED account before the write', async () => {
+    const { routes, events, auth } = harness({ store: LINKED() });
+    const { nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await routes['POST /api/link/production/execute']({
+      derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce,
+    });
+
+    // The derived account is the one this route expunges; the phrase account
+    // receives the link and survives, so it keeps its session.
+    expect(auth.revokeRefreshTokens).toHaveBeenCalledWith('L');
+    expect(auth.revokeRefreshTokens).not.toHaveBeenCalledWith('S');
+    expect(events.indexOf('revoke:L')).toBeLessThan(events.indexOf('rootUpdate'));
+  });
+
+  test('a revoke failure refuses the production link, and nothing is written', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ store: LINKED(), auth: makeAuthStub(evs, { failRevoke: true }) });
+    const { nonce } = await h.routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await expect(h.routes['POST /api/link/production/execute']({
+      derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce,
+    })).rejects.toThrow(/revoke|session/i);
+    expect(h.events).not.toContain('rootUpdate');
+  });
+
+  test('a derived account with no Auth record is linked, not refused', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ store: LINKED(), auth: makeAuthStub(evs, { noAuthRecord: true }) });
+    const { nonce } = await h.routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    const res = await h.routes['POST /api/link/production/execute']({
+      derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce,
+    });
+
+    expect(h.events).toContain('rootUpdate');
+    expect(res.sessionNote).toMatch(/no auth record/i);
+  });
+
+  test('the production link refuses outright when no auth handle is wired', async () => {
+    const { routes, events } = harness({ store: LINKED(), omitAuth: true });
+    const { nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await expect(routes['POST /api/link/production/execute']({
+      derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce,
+    })).rejects.toThrow(/auth/i);
+    expect(events).not.toContain('rootUpdate');
+  });
+
+  // The three routes share ONE revoke, so the note an operator reads names the
+  // operation they ran rather than always saying "purge".
+  test('the no-Auth-record note names the operation that ran', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ auth: makeAuthStub(evs, { noAuthRecord: true }) });
+    const p = await h.routes['POST /api/purge/preview']({ uid: 'L' });
+    const purged = await h.routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce: p.nonce });
+    expect(purged.sessionNote).toMatch(/purge/i);
+
+    const h2 = harness({ auth: makeAuthStub([], { noAuthRecord: true }) });
+    const m = await h2.routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    const merged = await h2.routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce: m.nonce,
+    });
+    expect(merged.sessionNote).toMatch(/merge/i);
+    expect(merged.sessionNote).not.toMatch(/purge/i);
+  });
+});
+
 // D5, opt-in. Deleting an Auth record is the one destruction the pre-image
 // cannot cover — a dumped RTDB subtree can be replayed, a deleted Auth user
 // cannot — so it is off by default and never implied by the purge confirm.

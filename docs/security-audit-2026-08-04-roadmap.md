@@ -30,11 +30,17 @@ marked **UNVERIFIED-LIVE** below.
 
 ## What is left (2026-08-04)
 
-**SEC-6 + SEC-8 only.** The other six are CLOSED and merged to `dev`; their
-entries stay below because the *reasoning* is the reusable part — and because
-three of them shipped **differently from what this document prescribed**
-(SEC-4, SEC-5, SEC-7 — each says so in its own entry). Read those before
-trusting the prescriptions in SEC-6 or SEC-8.
+**Nothing.** All eight are CLOSED. Six are merged to `dev` (`545dadf`); SEC-6
+and SEC-8 are built and verified on `claude/sec-6-sec-8-audit-l8b66s` and are
+**not merged yet** — the maintainer merges.
+
+The entries stay below because the *reasoning* is the reusable part — and
+because **four of the eight shipped differently from what this document
+prescribed** (SEC-4, SEC-5, SEC-7, SEC-8 — each says so in its own entry).
+SEC-8's is the sharpest case: its prescription did not merely miss a detail, it
+inverted once sequenced behind SEC-6 as this document itself required. Half of
+these prescriptions were wrong. Treat any prescription here as a hypothesis and
+re-derive it against the code you actually find.
 
 ## At a glance
 
@@ -45,17 +51,19 @@ trusting the prescriptions in SEC-6 or SEC-8.
 | SEC-3 | Ops `Origin` guard does not enforce the port | Security (defense-in-depth) | Medium | 10 (defect) / 3 (exploit) | **CLOSED** |
 | SEC-4 | `rootUpdate` overlap check disagrees with the SDK on collapsed paths | Security (defense-in-depth) | Medium | 8 | **CLOSED** |
 | SEC-5 | `.ops-audit/` git-ignore rule is path-anchored | Data exposure (repo) | Low | 7 | **CLOSED** |
-| SEC-6 | `merge` / `link-as-production` execute without revoking the session | Hardening / parity | Low; **not** a security finding | 8 | Open |
+| SEC-6 | `merge` / `link-as-production` execute without revoking the session | Hardening / parity | Low; **not** a security finding | 8 | **CLOSED** |
 | SEC-7 | Ops panel serves no CSP / framing headers | Security (defense-in-depth) | Low | 6 | **CLOSED** |
-| SEC-8 | Docs label the merge-leg client hazard "G3" (wrong ID) | Docs hygiene | Trivial | 9 | Open |
+| SEC-8 | Docs label the merge-leg client hazard "G3" (wrong ID) | Docs hygiene | Trivial | 9 | **CLOSED** — the prescription inverted; see its entry |
 | — | G3 / [#302](https://github.com/tenorune/on/issues/302): revoked-session write window | Security | — | — | **Parked** (out of scope) |
 
-**Deploy reality for the remaining work:** everything under `functions/ops/**` is
+**Deploy reality:** everything under `functions/ops/**` is
 excluded from the functions archive (`firebase.json` `functions.ignore: ops/**`)
-and rides **no deploy**. `.gitignore` and `docs/**` ride nothing. The **only**
-remaining item that ships to a live surface is **SEC-4** (`telegram-shared.js`, a
-deployed Cloud Function module). Merging any rules/functions change to `dev`
-deploys it to the dev project **ungated** (`deploy-dev.yml`); prod is the
+and rides **no deploy**. `.gitignore` and `docs/**` ride nothing. Exactly two of
+the eight ever touched a live surface — **SEC-1** (`database.rules.json`) and
+**SEC-4** (`telegram-shared.js`, a deployed Cloud Function module) — and both
+are already merged to `dev`, so they deployed there on `545dadf`. **SEC-6 and
+SEC-8 ship nothing**: `ops/**` plus docs. Merging any rules/functions change to
+`dev` deploys it to the dev project **ungated** (`deploy-dev.yml`); prod is the
 maintainer's, gated.
 
 ---
@@ -310,7 +318,7 @@ Recorded for context; **no action owed**. Closed on
   *not ignored*, which is the defect, and the default dir came back relative.
   Functions 1090/1090 (+7).
 
-## SEC-6 — `merge` / `link-as-production` execute without revoking the session
+## SEC-6 — `merge` / `link-as-production` execute without revoking the session — CLOSED
 
 - **Class: hardening / parity. NOT a security finding.** Filed here so it is not
   re-derived. The adversary is the account's own owner (merge's documented use is
@@ -335,6 +343,47 @@ Recorded for context; **no action owed**. Closed on
   `auth.revokeRefreshTokens` with the removed uid and refuse when it throws
   anything but `auth/user-not-found`.
 - **Deploy surface.** `ops/**` + docs — **no deploy**.
+- **Fix shipped, as prescribed — with the "verbatim" part taken as a shared
+  function rather than a copy.** The entry above asks for purge's guard and
+  `sessionNote` wording "verbatim so the three routes cannot drift". Copied
+  text drifts; a copied *guard* drifts silently. So the revoke is now ONE
+  function — `endSession(auth, uid, op)` in `ops/server.js` — and purge's own
+  route was folded onto it rather than left as the original. The messages take
+  the operation's name, so a merge reads "no session can survive this merge"
+  instead of "…this purge"; that is the only thing that varies, and a test
+  pins it.
+  - `merge/execute` revokes `loserUid`, `link/production/execute` revokes
+    `derivedUid` — always the account being **removed**, never the survivor or
+    the phrase account, which are the point of the operation and keep their
+    sessions. "Link via merge" comes through `merge/execute`, so it revokes
+    too: it loses no *data*, but that uid's session still ends, and the
+    README's row now says so.
+  - The **G8 allowlist matters more here than it ever did on purge**, and the
+    entry above did not note it: every account `ops/seed-merge-fixture.js`
+    writes is RTDB-only, and the merge leg of the smoke test runs against
+    exactly those. A bare `revokeRefreshTokens` — the literal reading of "the
+    same revoke" — would have refused the entire documented merge rehearsal.
+    Every other failure still refuses, fail-closed, with nothing written.
+  - The panel gained purge's footnote, worded per route, and now surfaces the
+    server's `sessionNote` after a merge and a production link. It was
+    purge-only, so a `NO AUTH RECORD` merge — the ordinary synthetic case —
+    reported nothing at all.
+- **Verification.** Eleven new cases, each confirmed **RED before the fix** and
+  for the defect itself, not fixture noise: `revokeRefreshTokens` called **zero
+  times** and the destructive write resolving `{ok: true}`. Functions
+  **1111/1111** (33 suites, baseline 1100); rules 119/119, web 2149/2149
+  unchanged, typechecks clean, zero new suppressions. The panel half was driven
+  through the **real** `createHttpServer` and the **real** `panel.html` in
+  headless Chromium (SEC-7's technique): both dialogs render their footnote,
+  both executes surface the note, no console output and no CSP violation — and
+  the harness was itself falsified by planting the breakage (footnote and alert
+  removed), which took it to four failures. Harness uncommitted, in the session
+  scratchpad.
+- **Boundary — UNVERIFIED-LIVE.** No session has ever held a service-account
+  credential, so the revoke has never been observed against real Firebase Auth
+  on these two routes. Purge's revoke *was* measured on dev (2026-08-02); these
+  two inherit that measurement by sharing its implementation, which is an
+  inference, not an observation.
 
 ## SEC-7 — Ops panel serves no CSP / framing headers — CLOSED
 
@@ -381,7 +430,7 @@ Recorded for context; **no action owed**. Closed on
   violations logged, so a green run means something. (Harness is uncommitted,
   in the session scratchpad, per the repo's precedent for browser smokes.)
 
-## SEC-8 — Docs label the merge-leg client hazard "G3" (wrong ID)
+## SEC-8 — Docs label the merge-leg client hazard "G3" (wrong ID) — CLOSED
 
 - **Class: docs hygiene. Trivial, confidence 9.**
 - **Where.** `functions/ops/README.md` (the merge-leg "a client is a hazard"
@@ -394,6 +443,42 @@ Recorded for context; **no action owed**. Closed on
 - **Fix.** Rename the hazard in both places to the merge-revoke-parity item
   (SEC-6), keeping G3 for the rules window only. Do it when SEC-6 is worked.
 - **Deploy surface.** docs — **no deploy**.
+- **Fix shipped — and it is the OPPOSITE of the rename prescribed above. The
+  fourth of this document's own prescriptions to be wrong**, after SEC-4,
+  SEC-5 and SEC-7.
+  - The diagnosis holds: "G3" *was* wrong on the merge leg, and for a sharper
+    reason than this entry gives. The README sentence reads "**G3** (a revoked
+    session keeps writing for up to an hour)" — a parenthetical describing a
+    session that **was revoked**. On the merge and link legs none was, so the
+    window it named as an hour was in fact **unbounded**. The label was not
+    merely the wrong ID; it understated the hazard.
+  - But the fix inverts, precisely because this document required SEC-8 to be
+    sequenced *behind* SEC-6 ("do it when SEC-6 is worked"). Once merge and the
+    production link revoke, their residual hazard **is** G3 — the same bounded
+    token window purge carries, for the same reason: `database.rules.json`
+    never checks `auth.token.auth_time`. Renaming to "SEC-6" would have stamped
+    two live runbooks with an item closed by the same commit, and struck a
+    reference that had just become true.
+  - **So G3 stays**, in `ops/README.md`'s merge-leg paragraph and in
+    `docs/HANDOFF.md`'s preconditions, each gaining a short passage recording
+    that the name became accurate only at SEC-6 and that the window was
+    unbounded before it. `ops/README.md` also renames "Why purge ends the
+    session" to "Why a destroy ends the session" and states the shared revoke
+    there, and its "What each action destroys" table now states the revoke on
+    the merge, link-via-merge and link-as-production rows — which was SEC-6's
+    docs half.
+  - **G3/#302 was not worked on and stays parked.** Nothing in this change
+    touches `database.rules.json`. The park's own instruction below — do not
+    fold SEC-6 into #302 — still holds and is not what happened: SEC-6 was the
+    *absence* of a revoke, #302 is an issued token *outliving* one, and closing
+    the first is exactly what made the second the correct name for what is
+    left. The two-mechanism distinction this entry exists to protect is
+    preserved; only which mechanism the merge leg sits under has changed.
+- **The transferable lesson**, since this is now a pattern rather than an
+  accident: **a prescription written before its dependency was implemented
+  describes the world without the dependency.** Four of eight entries here were
+  written that way and four were wrong. Re-derive the prescription against the
+  state the code is in when you reach it, not the state the audit found.
 
 ---
 
@@ -432,8 +517,9 @@ affect the correctness of a destructive write?).
 4. ~~**SEC-5**~~ — **DONE**. Not quite the advertised one-liner: the writer's
    CWD-relative default was taken with it, and the "N/A (config)" test note was
    wrong — `git check-ignore` tests it directly.
-5. **SEC-6 + SEC-8** together — the parity revoke and the doc-ID correction are
-   the same piece of work.
+5. ~~**SEC-6 + SEC-8**~~ — **DONE**, together as planned, and that sequencing
+   is what exposed the error: SEC-8's doc-ID correction inverts once SEC-6's
+   revoke lands, so G3 stayed rather than being renamed. See both entries.
 
 None of SEC-2..SEC-8 rides a deploy except SEC-4. A branch carrying all of them
 ships nothing to a live project until it reaches `dev`, and only SEC-4 changes a
