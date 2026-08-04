@@ -11,108 +11,58 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**START HERE (2026-08-04): SEC-6 + SEC-8, the last open items in the
-security-audit roadmap.** A security review of the `origin/main` → `dev` diff
-(the operator panel and everything descended from it) ran on 2026-08-04. It
-produced one real security finding — **SEC-1**, the `presence/code` →
-`codeIndex` charset + ownership gap — and itemized everything else,
-forward-first, in **`docs/security-audit-2026-08-04-roadmap.md`**. That doc is
-the source of truth for what remains, not this section.
+**START HERE: nothing is owed. Choose the next piece of work.** The
+2026-08-04 security audit is **finished — all eight items CLOSED and merged to
+`dev`** — and the build queue before it was already done. There is no in-flight
+branch, no owed operator run, and no half-finished change anywhere in this repo.
+A session picking this up **chooses** what to do next rather than continuing
+something.
 
-**Six of the eight are CLOSED and MERGED TO `dev`** (2026-08-04, at the
-maintainer's explicit instruction — the standing convention is still that they
-merge, not the agent). The branch was `claude/sec-2-revoked-sessions-l99r3u`;
-it is kept, not deleted. **That merge deployed to the dev Firebase project**
-(`deploy-dev.yml` fires on any push to `dev`, ungated), shipping SEC-4's
-`functions/telegram-shared.js` and SEC-1's `database.rules.json`. Prod is
-untouched and gated.
+**What is actually open, and it is all deliberate:** the five WON'T FIX rulings
+(G1, M1, M2, M6, M7) and **G3**, parked as
+[#302](https://github.com/tenorune/on/issues/302) — a whole-app rules gap,
+spec-first, not started. `docs/operator-panel-followups.md` is the ledger of
+record for every one of them, with a stable ID and the reasoning. Nothing else
+is left; the "deferred minors" section there is entirely CLOSED or WON'T FIX.
 
-Read the roadmap's CLOSED entries before trusting any of its *open*
-prescriptions: three of the six shipped differently from what the doc proposed
-(SEC-7's suggested header would have served a blank panel, SEC-5's "test N/A
-(config)" was wrong, and SEC-4 shipped stricter than prescribed). Each
-departure and its evidence is recorded in that item's entry.
+If you want the largest real piece of work available, it is **G3/#302**: RTDB
+rules never check `auth.token.auth_time`, so a revoked session keeps writing
+until its ID token expires (measured on dev: writes landing 33 min after the
+revoke, refused by 66). Every destructive route in the operator panel now
+revokes, which bounds that window but cannot close it — only the rules can.
+Start from the measurement in the followups doc, not from folklore.
 
-- **SEC-1** — `1ae38a8` + `e9e6dd6`. Security, Critical/High.
-- **SEC-2** — the `uid:"/"` path-collapse guard defeat. Robustness, High,
-  operator-only, **not** a security finding. `requireUid` at the panel edge, the
-  same assert at all four plan builders, and the "no account" guards made
-  positive (`own.presence`). One behaviour change is recorded in the roadmap's
-  SEC-2 entry: a real-but-presence-less `users/{uid}` residue node is no longer
-  purgeable.
-- **SEC-3** — the ops `Origin`/`Host` guard skipped the port comparison whenever
-  the header carried none, so `http://127.0.0.1` (port 80) passed on a panel
-  listening on `:8787`. An absent port now resolves to the scheme's default and
-  is compared like any other.
-- **SEC-7** — the panel serves `X-Frame-Options: DENY` and a CSP on every
-  response. **The header this repo's roadmap suggested would have served a
-  blank panel** — read SEC-7's entry before touching it: `connect-src 'self'`
-  and a per-response script nonce (`CSP_NONCE_PLACEHOLDER` in `panel.html`) are
-  load-bearing, and the page was verified in headless Chromium, not only by
-  unit tests.
-- **SEC-4** — `rootUpdate` decided "is this write-map conflict-free?" by raw
-  string, and the SDK decides it on the path it will actually write; a key with
-  an empty segment (`users//`) is re-targeted to a broader node. It now
-  **refuses** such a key — and the whole atomic map with it — rather than
-  normalizing it, because normalizing would still let an empty uid write
-  `/users` with the overlap check agreeing. **This is the one change in the
-  series that touches a DEPLOYED artifact** (`functions/telegram-shared.js`);
-  merging to `dev` deploys it ungated. No shipped caller emits such a key —
-  established by planting the refusal and watching all 32 other suites stay
-  green — so the expected production effect is none, but that is an inference
-  from the suite plus an offline SDK probe, not from a live run.
-- **SEC-5** — the `.ops-audit/` ignore rule is unanchored, and the default
-  audit dir is now anchored to `functions/` rather than to the operator's CWD,
-  so a pre-image dump (full account data, email included) cannot land somewhere
-  no ignore rule covers. `git check-ignore` tests it directly — the roadmap's
-  "N/A (config)" was wrong.
+### The security audit, for reference only
 
-- **SEC-6 + SEC-8** — the last two, done together as the roadmap sequenced them
-  and **not merged yet** (branch `claude/sec-6-sec-8-audit-l8b66s`).
-  `merge/execute` and `link/production/execute` destroyed an account without
-  revoking its session; purge had done so since 2026-08-02. All three now share
-  ONE `endSession` in `ops/server.js`, revoking the uid being **removed** (the
-  merge loser, the link's derived account) and never the survivor. The G8
-  `auth/user-not-found` allowlist carries over and is load-bearing here: every
-  `seed-merge-fixture.js` account is RTDB-only, so an unguarded revoke would
-  refuse the whole documented merge rehearsal. Confirmed absent before it was
-  added — the eleven new cases failed with `revokeRefreshTokens` called zero
-  times and the destructive write resolving `ok`. Hardening, not a security
-  finding: the only actor is the authorized operator, and the uid is
-  re-derivable either way, so this stops an already-open client and nothing
-  more.
-- **SEC-8 shipped the OPPOSITE of what the roadmap prescribed** — the fourth of
-  its prescriptions to be wrong, after SEC-4, SEC-5 and SEC-7. It called "G3"
-  the wrong ID for the merge-leg client hazard and said to rename it to SEC-6.
-  But sequenced behind SEC-6 — as the roadmap itself required — the rename
-  inverts: once merge and the production link revoke, their residual hazard IS
-  G3, the same bounded token window purge carries. So **G3 stays** in
-  `ops/README.md` and here, with a sentence recording that it became accurate
-  only at SEC-6, and that before it the window was unbounded rather than an
-  hour.
+`docs/security-audit-2026-08-04-roadmap.md` is the source of truth and it stays
+readable after closure by design — the *reasoning* is the reusable part. Two
+things from it are worth carrying forward even if you never open it:
 
-**G3/#302 was NOT worked on and stays parked.** Nothing in this branch touches
-`database.rules.json`; the `auth.token.auth_time` gap is untouched. Do not read
-"the merge leg is now under G3" as folding SEC-6 into #302 — SEC-6 was the
-absence of a revoke, #302 is an issued token outliving one, and closing the
-first is what made the second the correct name for what remains.
+- **Four of its eight prescriptions were wrong** (SEC-4, SEC-5, SEC-7, SEC-8),
+  each recorded in its own entry. The generalization, written down there: a
+  prescription authored before its dependency was implemented describes the
+  world *without* that dependency. Re-derive against the code you find. This is
+  the single most useful thing that document now contains.
+- **SEC-1 and SEC-4 were the only two that touched a deployed artifact**
+  (`database.rules.json`, `functions/telegram-shared.js`); both are live on the
+  dev project and gated on prod. Everything else was `ops/**` or docs, which
+  ride no deploy.
 
-**THE BUILD QUEUE IS DONE AND MERGED. NOTHING IS IN FLIGHT.** All six items
-ruled on 2026-08-03 — G4, M12, M5, M4, M3, M8 — are built, verified and merged
-to `dev` (`aa7322b`), which the security-audit merge above now sits on top of.
-**There is
-no owed build work on this repo**, and no operator run is owed either. What is
-left is **exactly six open items and no more**: the five WON'T FIX rulings
-(G1, M1, M2, M6, M7) and G3, parked as
-[#302](https://github.com/tenorune/on/issues/302) — spec-first, not started.
-The followups file's "deferred minors" section still exists, but every entry
-under it is now either CLOSED or one of those four WON'T FIX M-items — there is
-no third pile of leftover work. A session picking this up chooses what to do
-next rather than continuing something.
+**G3/#302 was not worked on by the SEC series and stays parked.** SEC-6 gave
+merge and "link as production" the revoke purge already had, so those legs now
+sit under G3's bounded window instead of an unbounded one — that is what put
+them under G3, not any change to the rules. Do not read it as folding SEC-6
+into #302: SEC-6 was the *absence* of a revoke, #302 is an issued token
+*outliving* one.
 
-The queue below is kept as a record of what shipped, not as work. It lived in
-`docs/operator-panel-followups.md` under **"The next session's queue"**,
-directly beneath the at-a-glance table, with what to read before starting each:
+---
+
+### History — skip unless relevant
+
+The build queue that preceded the audit: all six items ruled on 2026-08-03 —
+G4, M12, M5, M4, M3, M8 — built, verified and merged to `dev` (`aa7322b`), which
+the security-audit merges sit on top of. Kept as a record of what shipped, not
+as work. Each row names what to read before starting it:
 
 | | | |
 |---|---|---|
