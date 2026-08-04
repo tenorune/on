@@ -349,7 +349,14 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
   /** @type {Record<string, unknown>} */
   const nulls = {};
 
-  if (presence?.code) nulls[`codeIndex/${presence.code}`] = null;
+  // codeIndex/{code} is authoritative for who owns a code; presence/code is the
+  // account's OWN field and it can name any [A-Z0-9] string, including another
+  // user's live code. Free the index entry only when it resolves back to this
+  // uid — under the Admin SDK the owner-only delete rule does not apply, so an
+  // unconditional null would let an account expunge a victim's code entry.
+  if (presence?.code && (await deps.getVal(`codeIndex/${presence.code}`)) === uid) {
+    nulls[`codeIndex/${presence.code}`] = null;
+  }
 
   for (const token of Object.keys(invites || {})) {
     nulls[`inviteIndex/${token}`] = null;
@@ -553,7 +560,15 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
 
   // 2. Repoint indexes that resolve to the account.
   const code = own?.presence?.code;
-  if (code) writes[`codeIndex/${code}`] = newUid;
+  // Repoint the code only when codeIndex confirms it is this account's:
+  // presence/code is the account's own field and could name a victim's live
+  // code, and this write runs under the Admin SDK where the owner-only claim
+  // rule does not apply — so an unconditional repoint would let a graduating
+  // account steal another user's code entry. See graduate-invite-index.test.js
+  // "Variant A hijack".
+  if (code && (await deps.getVal(`codeIndex/${code}`)) === oldUid) {
+    writes[`codeIndex/${code}`] = newUid;
+  }
   for (const token of Object.keys(own?.invites || {})) {
     // NOT a bare uid — that is `codeIndex`'s shape, one line up, and copying it
     // here overwrote the record with a string. An invite index entry is

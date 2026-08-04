@@ -216,6 +216,22 @@ describe('identity and indexes', () => {
     expect(writes['codeIndex/SSS222']).toBeUndefined();
   });
 
+  // Variant A of the codeIndex finding: presence/code is the loser's own field,
+  // but codeIndex/{code} says who actually owns the code. A loser account whose
+  // holder set presence/code to a VICTIM's live code would, on merge, free the
+  // victim's codeIndex entry under the Admin SDK (rules do not apply). Free the
+  // entry only when it resolves back to the loser.
+  test('does NOT free a codeIndex entry the loser does not own (Variant A)', async () => {
+    const deps = world();
+    deps.store['users/L'].presence.code = 'VICT01'; // loser planted a victim's code
+    deps.store['codeIndex/VICT01'] = 'victim';       // authoritative: belongs to the victim
+    delete deps.store['codeIndex/LLL111'];           // the loser no longer claims LLL111
+    const { writes } = await merge(deps);
+
+    expect(writes['codeIndex/VICT01']).toBeUndefined();       // not freed
+    expect(await deps.getVal('codeIndex/VICT01')).toBe('victim'); // untouched
+  });
+
   test('invite tokens move and their index repoints, so links keep working', async () => {
     const { writes } = await merge(world());
     expect(writes['users/S/invites/tokL']).toEqual({ redemptionsUsed: 2 });

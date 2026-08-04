@@ -263,7 +263,13 @@ export async function buildMergePlan(deps, opts) {
 
   // --- identity: free the loser code (D1), move invite tokens ---------------
   const loserCode = loser.presence?.code;
-  if (loserCode) writes[`codeIndex/${loserCode}`] = null;
+  // Free the loser code only when codeIndex confirms it is the loser's:
+  // presence/code is the loser's own field and could name a victim's live code,
+  // and this null runs under the Admin SDK where the owner-only delete rule does
+  // not apply. See ops-merge.test.js "Variant A".
+  if (loserCode && (await deps.getVal(`codeIndex/${loserCode}`)) === L) {
+    writes[`codeIndex/${loserCode}`] = null;
+  }
   for (const [token, rec] of Object.entries(loser.invites || {})) {
     writes[`users/${S}/invites/${token}`] = rec;
     // `scope` is load-bearing: resolveInvitePreviewHandler (functions/invites.js:27,35)
