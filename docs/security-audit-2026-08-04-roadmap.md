@@ -33,7 +33,7 @@ marked **UNVERIFIED-LIVE** below.
 | ID | Item | Class | Severity | Confidence | Status |
 |----|------|-------|----------|-----------|--------|
 | SEC-1 | `presence/code` → `codeIndex` charset + ownership | Security | Critical (A) / High (B) | 8 | **CLOSED** |
-| SEC-2 | `uid:"/"` collapses purge/merge paths, defeats the "typo'd uid" guard | Robustness / data-safety | High (robustness); **not** a security finding | 9 (mechanism) | Open |
+| SEC-2 | `uid:"/"` collapses purge/merge paths, defeats the "typo'd uid" guard | Robustness / data-safety | High (robustness); **not** a security finding | 9 (mechanism) | **CLOSED** |
 | SEC-3 | Ops `Origin` guard does not enforce the port | Security (defense-in-depth) | Medium | 10 (defect) / 3 (exploit) | Open |
 | SEC-4 | `rootUpdate` overlap check disagrees with the SDK on collapsed paths | Security (defense-in-depth) | Medium | 8 | Open |
 | SEC-5 | `.ops-audit/` git-ignore rule is path-anchored | Data exposure (repo) | Low | 7 | Open |
@@ -82,7 +82,7 @@ Recorded for context; **no action owed**. Closed on
 
 ---
 
-## SEC-2 — `uid:"/"` collapses whole-node paths and defeats the purge/merge guard
+## SEC-2 — `uid:"/"` collapses whole-node paths and defeats the purge/merge guard — CLOSED
 
 - **Class: robustness / data-safety. NOT a security finding.** The only actor who
   can send it is the authorized operator at their own terminal, who already holds
@@ -121,7 +121,45 @@ Recorded for context; **no action owed**. Closed on
   violation (drop the regex) to confirm red.
 - **Deploy surface.** `ops/**` — **no deploy**.
 - **Depends on / relates to:** SEC-4 (the same path-collapse class; fixing
-  `rootUpdate` is the systemic backstop).
+  `rootUpdate` is the systemic backstop). SEC-2 closes the *plant* at this
+  panel's two entry layers; it does **not** make `rootUpdate` agree with the
+  SDK, so SEC-4 is still owed on its own terms.
+- **Fix shipped** (all three parts, as planned above).
+  - `functions/ops/uid.js` — new: `UID_PATTERN` (`/^[A-Za-z0-9_-]{1,128}$/`)
+    and `assertUid(value, field)`, ONE definition rather than three, since a
+    charset that drifts between the edge and the builders is the defect
+    re-introduced.
+  - `server.js` — `requireUid` (= `requireString` + `assertUid`) on **every**
+    uid-typed field: `uid`, `loserUid`, `survivorUid`, `derivedUid`,
+    `phraseUid`, across detail / merge / purge / link, preview and execute.
+    `requireString` still owns the empty case, so a blank box still reads
+    "uid is required" rather than "malformed".
+  - `purge.js` / `merge.js` — `assertUid` at the top of `buildPurgePlan`,
+    `buildMergePlan`, `buildLinkImpact` and `buildProductionLinkPlan`, before
+    the first `getVal`. Independently importable is the whole point: the CLIs
+    import them directly.
+  - Positive guards: `if (!own?.presence)` in `buildPurgePlan` /
+    `buildLinkImpact`, `if (!loser?.presence)` in `buildMergePlan`. The
+    survivor side was already positive (it must have a share code).
+- **Behaviour change worth knowing.** The positive guard also refuses a
+  `users/{uid}` node that is REAL but carries no `presence` — residue a peer
+  wrote under a uid with no account (the appendix's `followers/$follower`
+  ancestor-skip is one way to get one). Such a node was purgeable before and is
+  not now. It is the correct default (this tool must not treat a non-account
+  node as an account) and no such node is known to exist, but if residue
+  cleanup is wanted the guard is the thing to relax, deliberately.
+- **Verification.** Functions **1074/1074** (32 suites; +105 cases, baseline
+  969). Each layer confirmed RED before the fix by planting the violation, not
+  merely green after: with no fix at all, `buildPurgePlan(deps, '/')` *resolved*
+  to a plan nulling `users//`, `userPrefs//`, `pushTokens//`, `locations//` and
+  the six mailboxes (103 failures). Planting out **only** the edge check leaves
+  32 red — `GET /api/detail` and the three `execute` routes, where the edge is
+  the only check that runs before `consumeConfirm`; the preview routes stay
+  green because the builders' own `assertUid` catches them, which is the
+  defence-in-depth working, and means those preview cases pin the *behaviour*,
+  not the edge layer specifically. Planting out the builder checks leaves 17
+  red. Rules 119/119, typechecks clean (zero new suppressions), web 2149/2149
+  unchanged (no `js/` change).
 
 ## SEC-3 — Ops `Origin` guard does not enforce the port
 
@@ -282,8 +320,9 @@ affect the correctness of a destructive write?).
 1. **SEC-4** first — it is the only deployed surface, and it is the systemic
    backstop for SEC-2 and SEC-1/B. Do it carefully, with the merge/expunge tests
    green either side.
-2. **SEC-2** — highest-impact safety defect, even if operator-only. Bundle the
-   `requireUid` + positive-guard change.
+2. ~~**SEC-2**~~ — **DONE** (`requireUid` + the builder asserts + the positive
+   guards, bundled as one change, as planned). It did not close SEC-4; item 1
+   still stands on its own.
 3. **SEC-3 + SEC-7** together — both are `server.js` header/guard changes,
    defense-in-depth, no deploy.
 4. **SEC-5** — one-line `.gitignore` change; do it now, it is free.

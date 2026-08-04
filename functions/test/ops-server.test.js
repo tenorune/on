@@ -434,6 +434,55 @@ describe('read routes', () => {
   });
 });
 
+// SEC-2 — a uid typed into the panel becomes a KEY in every path the plan
+// builders assemble, and `"/"` is not a key: `users//` collapses to the whole
+// `users` node, which reads back populated and so satisfies the builders'
+// "typo'd uid" guard. The resulting write-set nulls whole top-level nodes.
+// Shape is therefore refused at the edge, before any plan is built, for EVERY
+// uid-typed field — a check on `uid` alone would leave merge and link open.
+describe('uid-shaped fields are refused unless they are legal keys', () => {
+  const BAD = ['/', '//', ' ', 'a/b', 'a.', 'a#b', 'a[b', 'x'.repeat(129)];
+
+  /** @type {[string, string, (bad: string) => unknown][]} */
+  const CASES = [
+    ['GET /api/detail', 'uid', (bad) => new URLSearchParams({ uid: bad })],
+    ['POST /api/purge/preview', 'uid', (bad) => ({ uid: bad })],
+    ['POST /api/purge/execute', 'uid', (bad) => ({ uid: bad, confirmUid: bad, nonce: 'n' })],
+    ['POST /api/merge/preview', 'loserUid', (bad) => ({ loserUid: bad, survivorUid: 'S' })],
+    ['POST /api/merge/preview', 'survivorUid', (bad) => ({ loserUid: 'L', survivorUid: bad })],
+    ['POST /api/merge/execute', 'loserUid', (bad) => ({ loserUid: bad, survivorUid: 'S', confirmUid: bad, nonce: 'n' })],
+    ['POST /api/link/impact', 'derivedUid', (bad) => ({ derivedUid: bad })],
+    ['POST /api/link/production/preview', 'derivedUid', (bad) => ({ derivedUid: bad, phraseUid: 'P' })],
+    ['POST /api/link/production/preview', 'phraseUid', (bad) => ({ derivedUid: 'L', phraseUid: bad })],
+    ['POST /api/link/production/execute', 'derivedUid', (bad) => ({ derivedUid: bad, phraseUid: 'P', confirmUid: bad, nonce: 'n' })],
+  ];
+
+  test.each(
+    CASES.flatMap(([route, field, body]) => BAD.map((bad) => [route, field, bad, body])),
+  )('%s refuses %s = %p', async (route, field, bad, body) => {
+    const { routes, deps } = harness();
+    await expect(routes[route](body(bad))).rejects.toThrow(new RegExp(`${field} must be a Firebase uid`));
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  // The pre-existing emptiness check still owns the empty case, and still
+  // fires before the shape check — the message an operator sees for a blank
+  // box should say the field is missing, not that a blank is malformed.
+  test('an empty or absent uid is still refused as missing', async () => {
+    const { routes } = harness();
+    await expect(routes['POST /api/purge/preview']({ uid: '' })).rejects.toThrow(/uid is required/);
+    await expect(routes['POST /api/purge/preview']({})).rejects.toThrow(/uid is required/);
+  });
+
+  // The shape check must not narrow what a real uid looks like: production
+  // uids are 32 hex characters, and the fixtures are short labels.
+  test('a well-formed uid still builds a plan', async () => {
+    const { routes } = harness();
+    const { plan } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    expect(plan.writes['users/L']).toBeNull();
+  });
+});
+
 // A purge deletes database state. It did NOT, until now, do anything about the
 // session holding that state: the Auth record survives (G2/D5), its custom-token
 // session stays valid, and the client republishes its cache into the nodes the

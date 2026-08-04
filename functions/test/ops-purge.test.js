@@ -75,6 +75,29 @@ describe('buildPurgePlan', () => {
     await expect(buildPurgePlan(loaded(), 'typo')).rejects.toThrow(/no account/);
   });
 
+  // SEC-2. A uid is a KEY in every path this plan builds, and `"/"` collapses
+  // them: `getVal('users//')` reads the WHOLE users node, which is non-empty,
+  // so the typo guard above passes and the write-set nulls `/users`,
+  // `/userPrefs`, `/pushTokens`, `/locations` and the mailboxes. The shape is
+  // therefore checked BEFORE the first read — and it is checked HERE, not only
+  // at the panel edge, because this builder is independently importable.
+  test.each(['/', '//', ' ', 'a/b', 'a.', 'a#b', 'a[b', '', 'x'.repeat(129)])(
+    'refuses the malformed uid %p before reading anything',
+    async (bad) => {
+      const deps = loaded();
+      await expect(buildPurgePlan(deps, bad)).rejects.toThrow(/must be a Firebase uid/);
+      expect(deps.getVal).not.toHaveBeenCalled();
+    },
+  );
+
+  // The "no account" guard has to be POSITIVE. A whole-node read is a
+  // populated object and satisfies a truthy check; only a per-account field
+  // distinguishes one account from the node that contains all of them.
+  test('refuses a users node carrying no presence of its own', async () => {
+    const deps = makeStoreDeps({ 'users/residue': { followers: { peer: 'PEER01' } } });
+    await expect(buildPurgePlan(deps, 'residue')).rejects.toThrow(/no account/);
+  });
+
   test('names the peers who lose a contact', async () => {
     const { losses } = await buildPurgePlan(loaded(), 'D');
     expect(losses.some((l) => l.includes('peer'))).toBe(true);
@@ -333,6 +356,19 @@ describe('buildLinkImpact', () => {
     expect(impact.losses).toEqual([]);
   });
 
+  // SEC-2, same seam: this builder reads `users/{derivedUid}` too, and a
+  // collapsed read would report the whole database's losses as one account's.
+  test('refuses a malformed derived uid before reading anything', async () => {
+    const deps = loaded();
+    await expect(buildLinkImpact(deps, '/')).rejects.toThrow(/must be a Firebase uid/);
+    expect(deps.getVal).not.toHaveBeenCalled();
+  });
+
+  test('refuses a users node carrying no presence of its own', async () => {
+    const deps = makeStoreDeps({ 'users/residue': { followers: { peer: 'PEER01' } } });
+    await expect(buildLinkImpact(deps, 'residue')).rejects.toThrow(/no account/);
+  });
+
   test('transient residue is listed as kept, not as a loss', async () => {
     const deps = empty();
     deps.store['knocks/E'] = { peer: { count: 1, ts: 1 } };
@@ -438,6 +474,18 @@ describe('buildProductionLinkPlan', () => {
     expect(writes['userPrefs/P/telegram/linkedAt']).toBe(NOW);
     expect(writes['userPrefs/P/notifyChannel']).toBe('telegram');
   });
+
+  // SEC-2: both uids are keys here — the derived one in `telegramByUid/{uid}`,
+  // the phrase one in `users/{uid}/presence`.
+  test.each([['derivedUid', '/', 'P'], ['phraseUid', 'E', '/']])(
+    'refuses a malformed %s before reading anything',
+    async (_field, derivedUid, phraseUid) => {
+      const deps = linkable();
+      await expect(buildProductionLinkPlan(deps, { derivedUid, phraseUid, now: NOW }))
+        .rejects.toThrow(/must be a Firebase uid/);
+      expect(deps.getVal).not.toHaveBeenCalled();
+    },
+  );
 
   // R4: the report asserted the stale mapping is "left pointing at {phraseUid}"
   // as fact, but that ownership was INFERRED from the phrase account's reverse

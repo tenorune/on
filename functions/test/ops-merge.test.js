@@ -77,6 +77,31 @@ describe('buildMergePlan — nothing is applied at preview time', () => {
     await expect(merge(world(), { loserUid: 'ghost' })).rejects.toThrow(/no account/);
     await expect(merge(world(), { survivorUid: 'ghost' })).rejects.toThrow(/graduateAccountData/);
   });
+
+  // SEC-2. Both uids are KEYS in every path this plan builds, and `"/"`
+  // collapses them: `users//` reads the whole users node, which is populated,
+  // so the missing-account guard above passes. Checked before the first read,
+  // and checked here rather than only at the panel edge because this builder
+  // is independently importable.
+  test.each(['/', '//', ' ', 'a/b', 'a.', 'a#b', '', 'x'.repeat(129)])(
+    'refuses the malformed uid %p before reading anything',
+    async (bad) => {
+      const losing = world();
+      await expect(merge(losing, { loserUid: bad })).rejects.toThrow(/loserUid must be a Firebase uid/);
+      expect(losing.getVal).not.toHaveBeenCalled();
+
+      const surviving = world();
+      await expect(merge(surviving, { survivorUid: bad })).rejects.toThrow(/survivorUid must be a Firebase uid/);
+      expect(surviving.getVal).not.toHaveBeenCalled();
+    },
+  );
+
+  // The missing-account guard has to be POSITIVE: a whole-node read is a
+  // populated object and satisfies a truthy check.
+  test('refuses a loser users node carrying no presence of its own', async () => {
+    const deps = world({ 'users/residue': { followers: { S: 'SSS222' } } });
+    await expect(merge(deps, { loserUid: 'residue' })).rejects.toThrow(/no account/);
+  });
 });
 
 describe('contacts', () => {

@@ -39,6 +39,7 @@ import {
   buildPurgePlan, applyPurgePlan, buildLinkImpact, buildProductionLinkPlan,
 } from './purge.js';
 import { capturePreImage, writeAuditRecord, appendAuditOutcome } from './audit.js';
+import { assertUid } from './uid.js';
 
 // The ambient `process` shim (types/app.d.ts) types only .env — it exists for
 // browser bundle code. This Node CLI also needs argv/exit, so view the global
@@ -333,6 +334,19 @@ function requireString(value, field) {
   return value;
 }
 
+/**
+ * A uid the operator typed, checked for KEY legality before it is interpolated
+ * into a path. `requireString` accepts `"/"`, which is not a uid at all: the
+ * SDK collapses `users//` to the whole `users` node, the plan builders read
+ * that back as an account, and one typed character becomes a whole-node
+ * delete. Every uid-typed field goes through here — a check on `uid` alone
+ * would leave merge and link wide open. See ops/uid.js.
+ * @param {unknown} value @param {string} field @returns {string}
+ */
+function requireUid(value, field) {
+  return assertUid(requireString(value, field), field);
+}
+
 /** @param {unknown} value @param {string} field @returns {string[]} */
 function stringList(value, field) {
   if (value === undefined || value === null) return [];
@@ -624,8 +638,8 @@ export function createRoutes(ctx) {
    * @param {number} now
    */
   const mergeOptions = (body, canvasKeys, now) => ({
-    loserUid: requireString(body.loserUid, 'loserUid'),
-    survivorUid: requireString(body.survivorUid, 'survivorUid'),
+    loserUid: requireUid(body.loserUid, 'loserUid'),
+    survivorUid: requireUid(body.survivorUid, 'survivorUid'),
     adoptGroupNames: stringList(body.adoptGroupNames, 'adoptGroupNames'),
     telegramRepoint: Boolean(body.telegramRepoint),
     canvasKeys,
@@ -638,8 +652,8 @@ export function createRoutes(ctx) {
    * @param {number} now
    */
   const linkOptions = (body, now) => ({
-    derivedUid: requireString(body.derivedUid, 'derivedUid'),
-    phraseUid: requireString(body.phraseUid, 'phraseUid'),
+    derivedUid: requireUid(body.derivedUid, 'derivedUid'),
+    phraseUid: requireUid(body.phraseUid, 'phraseUid'),
     now,
   });
 
@@ -660,7 +674,7 @@ export function createRoutes(ctx) {
     },
 
     'GET /api/detail': async (input) => {
-      const uid = requireString(asQuery(input).get('uid'), 'uid');
+      const uid = requireUid(asQuery(input).get('uid'), 'uid');
       const snap = await current();
       const detail = buildDetail(snap, uid, opts.uidSecret, snap.takenAt);
       if (!detail) throw new Error(`no account at users/${uid}`);
@@ -676,11 +690,11 @@ export function createRoutes(ctx) {
       const body = asBody(input);
       const snap = await current();
       const plan = await buildMergePlan(deps, mergeOptions(body, canvasKeysOf(snap), deps.now()));
-      return { plan, nonce: issueNonce(requireString(body.loserUid, 'loserUid'), plan), canvasKeys: canvasScope(snap) };
+      return { plan, nonce: issueNonce(requireUid(body.loserUid, 'loserUid'), plan), canvasKeys: canvasScope(snap) };
     },
     'POST /api/merge/execute': async (input) => {
       const body = asBody(input);
-      const approved = consumeConfirm(body, requireString(body.loserUid, 'loserUid'));
+      const approved = consumeConfirm(body, requireUid(body.loserUid, 'loserUid'));
       // Re-read rather than reuse the cache: the snapshot behind the preview is
       // minutes old by the time an operator types a uid, and a stale
       // snapshot-derived input gating a destructive write has already destroyed
@@ -696,14 +710,14 @@ export function createRoutes(ctx) {
 
     'POST /api/purge/preview': async (input) => {
       const body = asBody(input);
-      const uid = requireString(body.uid, 'uid');
+      const uid = requireUid(body.uid, 'uid');
       const snap = await current();
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
       return { plan, nonce: issueNonce(uid, plan), canvasKeys: canvasScope(snap) };
     },
     'POST /api/purge/execute': async (input) => {
       const body = asBody(input);
-      const uid = requireString(body.uid, 'uid');
+      const uid = requireUid(body.uid, 'uid');
       const approved = consumeConfirm(body, uid);
       const snap = await refresh();
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
@@ -770,7 +784,7 @@ export function createRoutes(ctx) {
     'POST /api/link/impact': async (input) => {
       const body = asBody(input);
       const snap = await current();
-      const impact = await buildLinkImpact(deps, requireString(body.derivedUid, 'derivedUid'), canvasKeysOf(snap));
+      const impact = await buildLinkImpact(deps, requireUid(body.derivedUid, 'derivedUid'), canvasKeysOf(snap));
       return { ...impact, canvasKeys: canvasScope(snap) };
     },
     'POST /api/link/production/preview': async (input) => {
@@ -782,7 +796,7 @@ export function createRoutes(ctx) {
     },
     'POST /api/link/production/execute': async (input) => {
       const body = asBody(input);
-      const approved = consumeConfirm(body, requireString(body.derivedUid, 'derivedUid'));
+      const approved = consumeConfirm(body, requireUid(body.derivedUid, 'derivedUid'));
       const snap = await refresh();
       const options = linkOptions(body, deps.now());
       const plan = await buildProductionLinkPlan(deps, options, canvasKeysOf(snap));

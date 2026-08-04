@@ -11,22 +11,36 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**START HERE (2026-08-04): SEC-2, the first open item in the security-audit
+**START HERE (2026-08-04): SEC-4, the first open item in the security-audit
 roadmap.** A security review of the `origin/main` → `dev` diff (the operator
-panel and everything descended from it) ran this session. It produced one real
+panel and everything descended from it) ran on 2026-08-04. It produced one real
 security finding — **SEC-1**, the `presence/code` → `codeIndex` charset +
-ownership gap — which is **FIXED and pushed on this branch**
-(`claude/knockknock-revoked-sessions-im20og`, commits `1ae38a8` + `e9e6dd6`,
-**not merged** — maintainer's call). Everything else the audit surfaced is
-itemized, forward-first, in **`docs/security-audit-2026-08-04-roadmap.md`** —
-that doc is the source of truth for SEC-2…SEC-8, not this section. Next session
-starts **SEC-2** (the `uid:"/"` path-collapse guard defeat — a High-severity
-*robustness* defect, operator-only, not a security finding), per the roadmap's
-suggested sequencing. NB the sequencing note: **SEC-4 is the only remaining item
-on a deployed surface** (`functions/telegram-shared.js`); SEC-2/3/5/6/7/8 are
-`ops/**`, `.gitignore`, or docs and ride no deploy. G3/#302 stays parked and
-out of scope — do **not** fold SEC-6 into it (they are different mechanisms; see
-the roadmap's SEC-8).
+ownership gap — and itemized everything else, forward-first, in
+**`docs/security-audit-2026-08-04-roadmap.md`**. That doc is the source of
+truth for SEC-3…SEC-8, not this section.
+
+**Two of the eight are now CLOSED, both on the working branch
+`claude/sec-2-revoked-sessions-l99r3u` and NOT merged — the maintainer's call.**
+(That branch carries the SEC-1 work verbatim; it and
+`claude/knockknock-revoked-sessions-im20og` share the tip `b546e40` the SEC-2
+commit builds on.)
+
+- **SEC-1** — `1ae38a8` + `e9e6dd6`. Security, Critical/High.
+- **SEC-2** — the `uid:"/"` path-collapse guard defeat. Robustness, High,
+  operator-only, **not** a security finding. `requireUid` at the panel edge, the
+  same assert at all four plan builders, and the "no account" guards made
+  positive (`own.presence`). One behaviour change is recorded in the roadmap's
+  SEC-2 entry: a real-but-presence-less `users/{uid}` residue node is no longer
+  purgeable.
+
+Next is **SEC-4**, per the roadmap's suggested sequencing, and it is the one
+that needs care: **SEC-4 is the only remaining item on a deployed surface**
+(`functions/telegram-shared.js`). SEC-3/5/6/7/8 are `ops/**`, `.gitignore`, or
+docs and ride no deploy. SEC-2 did **not** subsume SEC-4 — it closed the plant
+at this panel's entry layers; `rootUpdate` still disagrees with the SDK about
+what path a collapsed key names. G3/#302 stays parked and out of scope — do
+**not** fold SEC-6 into it (they are different mechanisms; see the roadmap's
+SEC-8).
 
 **THE BUILD QUEUE IS DONE AND MERGED. NOTHING IS IN FLIGHT.** All six items
 ruled on 2026-08-03 — G4, M12, M5, M4, M3, M8 — are built, verified and merged
