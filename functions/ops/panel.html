@@ -194,6 +194,17 @@ const adoptBlock = (plan, adopt) => {
       ${esc(c.detail)} → <strong>${esc(c.resolution)}</strong></label><br>`).join('')}`;
 };
 
+// The same paragraph purge has carried since 2026-08-02, for the routes that
+// gained the revoke with SEC-6. Which account is removed is the only variable:
+// merge removes the loser, "link as production" removes the derived account,
+// and neither touches the session of the one that survives.
+const sessionFootnote = (who) => `<p class="footnote">The ${who}'s session is revoked before the
+  write. That stops a client that is <em>already open</em> from republishing its cache into the
+  nodes this operation clears — it does NOT evict one: an ID token already in hand keeps working
+  until it expires (measured: up to ~1h from when the client last opened).
+  <strong>Close the ${who}'s app before executing.</strong> Nor does it retire the uid — the
+  account returns at the same uid on next open.</p>`;
+
 // The shared body of both merge previews — "merge into…" and "link via merge…"
 // differ only in their heading and the mapping repoint.
 async function mergePreview(uid, survivorUid, { telegramRepoint, heading }) {
@@ -205,13 +216,15 @@ async function mergePreview(uid, survivorUid, { telegramRepoint, heading }) {
     state.nonce = nonce; state.canvasKeys = canvasKeys; renderCanvasBanner();
     return `${heading}${canvasNote()}
       <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
-      <pre>${esc(plan.losses.join('\n') || 'no losses')}</pre>${cascadeNote(plan)}${pathNote(plan)}${adoptBlock(plan, adopt)}`;
+      <pre>${esc(plan.losses.join('\n') || 'no losses')}</pre>${cascadeNote(plan)}${pathNote(plan)}${adoptBlock(plan, adopt)}
+      ${sessionFootnote('loser')}`;
   };
 
   preview(await load(), async (confirmUid) => {
-    await api('/api/merge/execute', {
+    const res = await api('/api/merge/execute', {
       loserUid: uid, survivorUid, telegramRepoint, adoptGroupNames: [...adopt], confirmUid, nonce: state.nonce,
     });
+    if (res.sessionNote) alert(res.sessionNote);
     await refresh();
   }, async (e) => {
     const gid = e.target?.dataset?.adopt;
@@ -303,9 +316,11 @@ $('detail').onclick = async (e) => {
       preview(`<h3>link as production: ${esc(uid)} is DESTROYED</h3>${canvasNote()}
         <p>impact verdict: <strong>${esc(impact.verdict)}</strong> — use "link via merge" instead whenever this is lossy.</p>
         <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
-        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${cascadeNote(plan)}${pathNote(plan)}`,
+        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${cascadeNote(plan)}${pathNote(plan)}
+        ${sessionFootnote('derived account')}`,
       async (confirmUid) => {
-        await api('/api/link/production/execute', { derivedUid: uid, phraseUid, confirmUid, nonce: state.nonce });
+        const res = await api('/api/link/production/execute', { derivedUid: uid, phraseUid, confirmUid, nonce: state.nonce });
+        if (res.sessionNote) alert(res.sessionNote);
         await refresh();
       });
     }

@@ -392,6 +392,55 @@ function stringList(value, field) {
   return /** @type {string[]} */ (value);
 }
 
+/**
+ * End the session of an account a destructive route is about to remove.
+ *
+ * ONE definition for all three such routes (purge, merge, the production
+ * link), for ops/uid.js's reason: a guard that drifts between the routes is
+ * the defect re-introduced. Purge has revoked since 2026-08-02; merge and the
+ * production link destroyed an account without ever calling this (SEC-6), and
+ * "parity" only holds if there is a single thing to be at parity with.
+ *
+ * FAIL CLOSED. A destroy whose session cannot be ended does not stick —
+ * the client republishes its cache into the nodes the write just cleared —
+ * and reporting success for a write the client will undo is worse than
+ * refusing: the operator walks away believing the account is gone.
+ *
+ * An account Firebase Auth has never seen is the ONE benign failure (G8): no
+ * Auth record means no session, so there is nothing to outlive the write. An
+ * ALLOWLIST of one code — any other failure is a revoke that should have
+ * worked and did not, which is G2, so it still refuses. This matters more on
+ * merge than it ever did on purge: every account `ops/seed-merge-fixture.js`
+ * writes is RTDB-only, and the merge leg of the smoke test is run against
+ * exactly those, so an unguarded revoke would refuse the whole rehearsal.
+ *
+ * What this does NOT do is retire the uid. Uids are re-derivable
+ * (`deriveTelegramUid` / `validateRecovery`), so the account returns at the
+ * same uid on next open; revoking only stops a client that is ALREADY open.
+ * Nor does it evict a live session: an issued ID token stays valid until it
+ * expires because `database.rules.json` never checks `auth.token.auth_time`
+ * (G3/#302, measured at up to ~1h). Both limits are purge's, unchanged.
+ *
+ * @param {OpsWiring['auth'] | undefined} auth
+ * @param {string} uid the account being REMOVED — never the one that survives
+ * @param {string} op operator-facing name of the operation, for the messages
+ * @returns {Promise<string | undefined>} a note to surface, or undefined
+ */
+async function endSession(auth, uid, op) {
+  if (!auth) {
+    throw new Error(`${op} needs an Admin-SDK auth handle to end the account's session — refusing`);
+  }
+  try {
+    await auth.revokeRefreshTokens(uid);
+    return undefined;
+  } catch (e) {
+    if (/** @type {{ code?: string }} */ (e)?.code !== 'auth/user-not-found') {
+      throw new Error(`${op} refused: the account's session could not be revoked (${String(e)}). A ${op} whose session cannot be ended does not stick.`);
+    }
+    return `NO AUTH RECORD for ${uid} — nothing to revoke, so no session can survive this ${op}. The write proceeded. An RTDB-only account (a seeded fixture, or one whose Auth record was already removed) is the expected case.`;
+  }
+}
+
 // --- routes ----------------------------------------------------------------
 
 /**
@@ -741,7 +790,15 @@ export function createRoutes(ctx) {
       const options = mergeOptions(body, canvasKeysOf(snap), deps.now());
       const plan = await buildMergePlan(deps, options);
       assertPlanUnchanged(approved, plan);
-      return execute('merge', [options.loserUid, options.survivorUid], plan, (p) => applyMergePlan(deps, p));
+
+      // Revoke BEFORE the write, and the LOSER only: the survivor is the point
+      // of the operation and keeps its session. A merge destroys the loser
+      // account exactly as a purge does — same expunge enumerator — so it
+      // carries the same race, and until SEC-6 it ran without this (parity,
+      // not a new mechanism). "link via merge" comes through here too.
+      const sessionNote = await endSession(auth, options.loserUid, 'merge');
+      const executed = await execute('merge', [options.loserUid, options.survivorUid], plan, (p) => applyMergePlan(deps, p));
+      return sessionNote ? { ...executed, sessionNote } : executed;
     },
 
     'POST /api/purge/preview': async (input) => {
@@ -759,9 +816,8 @@ export function createRoutes(ctx) {
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
       assertPlanUnchanged(approved, plan);
 
-      // FAIL CLOSED. A purge whose session cannot be ended does not stick, and
-      // reporting success for a write the client will undo is worse than
-      // refusing: the operator walks away believing the account is gone.
+      // The auth handle is checked before the Auth-record read below, not only
+      // inside endSession, because readAuthIdentity needs it too.
       if (!auth) {
         throw new Error('purge needs an Admin-SDK auth handle to end the account\'s session — refusing');
       }
@@ -772,26 +828,10 @@ export function createRoutes(ctx) {
       const authRecord = deleteAuthRecord ? await readAuthIdentity(auth, uid) : null;
 
       // Revoke BEFORE the write. After it, there is a window in which the
-      // client can put back exactly what was deleted — which is the bug.
-      //
-      // An account Firebase Auth has never seen is the ONE benign failure here
-      // (G8, found on dev 2026-08-03): no Auth record means no session, so
-      // there is nothing to outlive the write and nothing to republish a cache.
-      // Refusing it refused the safest case — and made purging a synthetic
-      // account impossible, which is the documented mitigation for G3 and G6
-      // and what every ops/seed-merge-fixture.js account is. An ALLOWLIST of
-      // one code, like opGuard's: any other failure is a revoke that should
-      // have worked and did not, and that is G2, so it still refuses.
-      /** @type {string | undefined} */
-      let sessionNote;
-      try {
-        await auth.revokeRefreshTokens(uid);
-      } catch (e) {
-        if (/** @type {{ code?: string }} */ (e)?.code !== 'auth/user-not-found') {
-          throw new Error(`purge refused: the account's session could not be revoked (${String(e)}). A purge whose session cannot be ended does not stick.`);
-        }
-        sessionNote = `NO AUTH RECORD for ${uid} — nothing to revoke, so no session can survive this purge. Deletion proceeded. An RTDB-only account (a seeded fixture, or one whose Auth record was already removed) is the expected case.`;
-      }
+      // client can put back exactly what was deleted — which is the bug. The
+      // fail-closed rule, the G8 allowlist and the note's wording all live in
+      // endSession now, shared with merge and the production link (SEC-6).
+      const sessionNote = await endSession(auth, uid, 'purge');
 
       const executed = await execute('purge', [uid], plan, (p) => applyPurgePlan(deps, p), authRecord);
       const result = sessionNote ? { ...executed, sessionNote } : executed;
@@ -837,7 +877,13 @@ export function createRoutes(ctx) {
       const options = linkOptions(body, deps.now());
       const plan = await buildProductionLinkPlan(deps, options, canvasKeysOf(snap));
       assertPlanUnchanged(approved, plan);
-      return execute('link-production', [options.derivedUid, options.phraseUid], plan, (p) => applyPurgePlan(deps, p));
+
+      // The DERIVED account is the one this route expunges (applyPurgePlan, on
+      // an expunge write-set); the phrase account receives the link and
+      // survives, so it keeps its session. SEC-6, same parity as merge.
+      const sessionNote = await endSession(auth, options.derivedUid, 'production link');
+      const executed = await execute('link-production', [options.derivedUid, options.phraseUid], plan, (p) => applyPurgePlan(deps, p));
+      return sessionNote ? { ...executed, sessionNote } : executed;
     },
   };
 }
