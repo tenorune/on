@@ -36,7 +36,7 @@ marked **UNVERIFIED-LIVE** below.
 | SEC-2 | `uid:"/"` collapses purge/merge paths, defeats the "typo'd uid" guard | Robustness / data-safety | High (robustness); **not** a security finding | 9 (mechanism) | **CLOSED** |
 | SEC-3 | Ops `Origin` guard does not enforce the port | Security (defense-in-depth) | Medium | 10 (defect) / 3 (exploit) | **CLOSED** |
 | SEC-4 | `rootUpdate` overlap check disagrees with the SDK on collapsed paths | Security (defense-in-depth) | Medium | 8 | Open |
-| SEC-5 | `.ops-audit/` git-ignore rule is path-anchored | Data exposure (repo) | Low | 7 | Open |
+| SEC-5 | `.ops-audit/` git-ignore rule is path-anchored | Data exposure (repo) | Low | 7 | **CLOSED** |
 | SEC-6 | `merge` / `link-as-production` execute without revoking the session | Hardening / parity | Low; **not** a security finding | 8 | Open |
 | SEC-7 | Ops panel serves no CSP / framing headers | Security (defense-in-depth) | Low | 6 | **CLOSED** |
 | SEC-8 | Docs label the merge-leg client hazard "G3" (wrong ID) | Docs hygiene | Trivial | 9 | Open |
@@ -231,7 +231,7 @@ Recorded for context; **no action owed**. Closed on
   module — this is the one remaining item that ships to a live surface. Treat its
   review accordingly.
 
-## SEC-5 — `.ops-audit/` git-ignore rule is path-anchored
+## SEC-5 — `.ops-audit/` git-ignore rule is path-anchored — CLOSED
 
 - **Class: data exposure (repository). Low, confidence 7.**
 - **Where.** `.gitignore:18` is `functions/.ops-audit/` — anchored, so it only
@@ -250,6 +250,23 @@ Recorded for context; **no action owed**. Closed on
 - **Test.** N/A (config); a one-line note in `README.md`'s run section that the
   dump dir is ignored regardless of launch directory.
 - **Deploy surface.** `.gitignore` — **no deploy**.
+- **Fix shipped, both halves** (the "optional" one was taken — a rule and a
+  writer that disagree about where dumps go is how this item happened).
+  - `.gitignore` — `functions/.ops-audit/` → `.ops-audit/`, matching at any
+    depth.
+  - `server.js` — the default `--audit-dir` is now `DEFAULT_AUDIT_DIR`,
+    `join(HERE, '..', '.ops-audit')`, so the location is a property of the
+    module rather than of the operator's shell. An explicit `--audit-dir` still
+    wins. (The stray second `const HERE` further down the file went with it.)
+  - `ops/README.md` — the flag table's default and a note on both facts.
+- **Test — it turned out NOT to be N/A.** `functions/test/ops-audit-dir.test.js`
+  asks **git itself** (`git check-ignore`, the CLI-spawning precedent set by
+  `ops-merge-cli.test.js`) whether a dump is ignored at the repo root, under
+  `functions/`, and one level deeper, plus that an ordinary tracked file is
+  still not ignored; and pins the default audit dir as absolute and anchored to
+  `functions/`. Confirmed RED first: the repo-root and deeper paths came back
+  *not ignored*, which is the defect, and the default dir came back relative.
+  Functions 1090/1090 (+7).
 
 ## SEC-6 — `merge` / `link-as-production` execute without revoking the session
 
@@ -369,7 +386,9 @@ affect the correctness of a destructive write?).
    still stands on its own.
 3. ~~**SEC-3 + SEC-7**~~ — **DONE**, together as planned (both `server.js`).
    Note SEC-7 did not ship the header this doc suggested; see its entry.
-4. **SEC-5** — one-line `.gitignore` change; do it now, it is free.
+4. ~~**SEC-5**~~ — **DONE**. Not quite the advertised one-liner: the writer's
+   CWD-relative default was taken with it, and the "N/A (config)" test note was
+   wrong — `git check-ignore` tests it directly.
 5. **SEC-6 + SEC-8** together — the parity revoke and the doc-ID correction are
    the same piece of work.
 

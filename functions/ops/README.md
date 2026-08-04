@@ -75,7 +75,7 @@ nothing about what the panel can write.
 | `--database-url <url>` | derived | overrides the derived RTDB host |
 | `--prod-project <id>` | (`PROD_PROJECT`) | which project is production |
 | `--i-know-this-is-prod` | off | acknowledge a production target |
-| `--audit-dir <dir>` | `.ops-audit` | where pre-images and the log land |
+| `--audit-dir <dir>` | `functions/.ops-audit` | where pre-images and the log land |
 
 ## The production gate fails closed
 
@@ -97,6 +97,12 @@ is production *or* undeclared.
 
 Every destructive route writes to `--audit-dir` (default `functions/.ops-audit/`,
 which is gitignored — **never commit its contents**):
+
+The default is resolved against **this module's own directory**, not your
+working directory, so `node functions/ops/server.js` from the repo root and
+`node ops/server.js` from `functions/` write to the same place. The
+`.gitignore` rule is unanchored (`.ops-audit/`), so a dump is ignored at any
+depth — including one you point `--audit-dir` at somewhere else in the tree.
 
 * `<ts>-<op>-<uid>.json` — the **pre-image**: the current value of every path
   in the plan's write-set, captured and `fsync`ed **before** the destructive

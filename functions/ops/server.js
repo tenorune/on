@@ -51,6 +51,21 @@ const proc = /** @type {{ argv: string[]; env: Record<string, string | undefined
 const DEFAULT_PORT = 8787;
 const DEFAULT_REGION = 'europe-west1';
 
+/** This module's own directory — the panel's files are found relative to it. */
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Where pre-image dumps land unless the operator names somewhere else.
+ *
+ * Anchored to THIS file's tree, not to the CWD. The launcher accepts
+ * `node functions/ops/server.js` from the repo root as readily as
+ * `node ops/server.js` from `functions/`, and a relative default put the dumps
+ * — full account data, email included when the Auth-delete box is ticked —
+ * wherever the operator happened to be standing. One predictable location is
+ * also what makes a single `.gitignore` rule able to cover them.
+ */
+const DEFAULT_AUDIT_DIR = join(HERE, '..', '.ops-audit');
+
 /** The ONLY address this server ever binds. See the file header. */
 export const BIND_ADDRESS = '127.0.0.1';
 
@@ -211,7 +226,7 @@ export function parseArgs(argv, env) {
     prodProject: cleaned(val('--prod-project')) || cleaned(env.PROD_PROJECT),
     prodAcknowledged: argv.includes('--i-know-this-is-prod'),
     uidSecret: cleaned(env.TELEGRAM_UID_SECRET),
-    auditDir: cleaned(val('--audit-dir')) || '.ops-audit',
+    auditDir: cleaned(val('--audit-dir')) || DEFAULT_AUDIT_DIR,
   };
 }
 
@@ -923,8 +938,6 @@ export function createHttpServer({ routes, page }) {
     return undefined;
   });
 }
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
  * functions/.env, or null when there is no such file. A read that fails for any

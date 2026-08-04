@@ -19,7 +19,7 @@ ownership gap — and itemized everything else, forward-first, in
 **`docs/security-audit-2026-08-04-roadmap.md`**. That doc is the source of
 truth for SEC-3…SEC-8, not this section.
 
-**Four of the eight are now CLOSED, all on the working branch
+**Five of the eight are now CLOSED, all on the working branch
 `claude/sec-2-revoked-sessions-l99r3u` and NOT merged — the maintainer's call.**
 (That branch carries the SEC-1 work verbatim; it and
 `claude/knockknock-revoked-sessions-im20og` share the tip `b546e40` the SEC-2
@@ -42,11 +42,16 @@ commit builds on.)
   and a per-response script nonce (`CSP_NONCE_PLACEHOLDER` in `panel.html`) are
   load-bearing, and the page was verified in headless Chromium, not only by
   unit tests.
+- **SEC-5** — the `.ops-audit/` ignore rule is unanchored, and the default
+  audit dir is now anchored to `functions/` rather than to the operator's CWD,
+  so a pre-image dump (full account data, email included) cannot land somewhere
+  no ignore rule covers. `git check-ignore` tests it directly — the roadmap's
+  "N/A (config)" was wrong.
 
-Open: **SEC-4**, SEC-5, SEC-6, SEC-8. Next is **SEC-4**, per the roadmap's
-suggested sequencing, and it is the one that needs care: **SEC-4 is the only
-remaining item on a deployed surface** (`functions/telegram-shared.js`). SEC-5
-(`.gitignore`), SEC-6 (`ops/**` + docs) and SEC-8 (docs) ride no deploy. SEC-2 did **not** subsume SEC-4 — it closed the plant
+Open: **SEC-4**, SEC-6, SEC-8. Next is **SEC-4**, and it is the one that needs
+care: **SEC-4 is the only remaining item on a deployed surface**
+(`functions/telegram-shared.js`). SEC-6 (`ops/**` + docs) and SEC-8 (docs) ride
+no deploy. SEC-2 did **not** subsume SEC-4 — it closed the plant
 at this panel's entry layers; `rootUpdate` still disagrees with the SDK about
 what path a collapsed key names. G3/#302 stays parked and out of scope — do
 **not** fold SEC-6 into it (they are different mechanisms; see the roadmap's
