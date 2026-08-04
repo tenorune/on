@@ -320,6 +320,42 @@ by design, and the unanchored rule covers a custom location too.
 
 **OBSERVED 2026-08-04**: both halves, including the root launch.
 
+### A6. The socket is not reachable off-box
+
+The one check in this family a container cannot answer: `BIND_ADDRESS` is
+`127.0.0.1` and there is deliberately no `--host` flag, but "nothing else on the
+network can reach it" is a property of the machine and its interfaces, not of the
+code. This process holds a full database-admin credential and has **no login**, so
+a reachable socket is a full compromise.
+
+Carried over from the original smoke test's step 6c, which this page omitted in
+its first draft.
+
+**With the panel running**, from a second machine on the same network:
+
+```bash
+curl -sS --max-time 5 http://<the-panel-machine-lan-ip>:8787/api/snapshot
+```
+
+**Expect:** connection refused or timeout — not a response.
+
+⚠️ **Run the control in the same sitting, or the result means nothing.** A panel
+that is not running produces a *byte-identical* `Couldn't connect to server`. So
+either side of the off-box probe, from the panel machine itself:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/   # expect 200
+```
+
+A `200` on loopback and a refusal off-box is the pass. A refusal on both means
+the panel was down and the test did not run.
+
+**What this does NOT distinguish:** a host firewall dropping the connection from
+the bind address refusing it. Both are safe outcomes today, but only one is in
+the code — a firewall rule can be changed by someone who does not know why it is
+there. The code-level guarantee is `BIND_ADDRESS` plus the absent `--host` flag;
+this step is consistent with it, not proof of it.
+
 ---
 
 # Part B — dev project, panel, nothing written
@@ -868,6 +904,7 @@ row, and a row that owes something says so.
 | A3 | CSP + framing, nonce fresh and pinned | **OBSERVED 2026-08-04** | header/body nonce matched; 0 placeholders left |
 | A4 | uid refusals, 7 preview/detail + 3 execute | **OBSERVED 2026-08-04** | merge/link previews deferred to B4 — ordering, not a defect |
 | A5 | gitignore at 3 depths + CWD-independent audit dir | **OBSERVED 2026-08-04** | launched from repo root; dir still absolute under `functions/` |
+| A6 | Socket not reachable off-box | **OBSERVED 2026-08-04 — operator machine, CONTROL NOT RECORDED** | `curl` to `192.168.178.81:8787` → `Failed to connect … after 1004 ms`. Refusal is the expected result. ⚠️ The loopback `200` control was not recorded in the same sitting, and a panel that is down produces the identical error — so this row is one confirmation short of a PASS. Re-run with the control, or confirm the panel was serving at the time. |
 | B0 | Panel runs under the CSP in a browser | | |
 | B1 | G4 cascade block renders, and `none predicted` where it should | | |
 | B2 | M8 tick appears and re-previews | | |
