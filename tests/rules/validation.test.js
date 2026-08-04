@@ -125,6 +125,20 @@ describe('users/$uid/presence — field shape (Increment 2)', () => {
     await assertFails(dbAs(env, 'u1').ref('users/u1/presence/availableUntil').set('soon'));
     await assertFails(dbAs(env, 'u1').ref('users/u1/presence/lastSeen').set('now'));
   });
+  // presence/code is interpolated into an Admin-SDK path (codeIndex/{code}) on
+  // expunge and merge, where rules do not apply. A share code is [A-Z0-9]{6} by
+  // construction (generateShareCode); the charset .validate stops an owner
+  // planting a path-metacharacter — a '/' collapses codeIndex/{code} to the
+  // whole codeIndex node when the SDK re-parses the update key. It does NOT stop
+  // planting another user's *well-formed* code (that needs an ownership check on
+  // the codeIndex delete, in buildExpungeWrites/merge.js — a separate fix).
+  test('code: charset is restricted to the share-code alphabet, refusing path metacharacters', async () => {
+    await assertSucceeds(dbAs(env, 'u1').ref('users/u1/presence/code').set('XK7P2M')); // legit shape still allowed
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/code').set('/'));          // the codeIndex// collapse plant
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/code').set('AB/CD'));       // embedded separator
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/code').set('A.B'));         // '.' is an RTDB path metachar
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/code').set(''));            // empty is no longer a valid code
+  });
 });
 
 describe('groups/$gid meta — field shape (Increment 2)', () => {
