@@ -16,7 +16,9 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 `dev`** — and the build queue before it was already done. There is no in-flight
 branch, no owed operator run, and no half-finished change anywhere in this repo.
 A session picking this up **chooses** what to do next rather than continuing
-something.
+something — and "chooses" means *with the operator*, not instead of them. The
+ledger is an inventory, not a menu a session may order from; nothing on it is
+self-authorising, and **G3 least of all** (see below).
 
 **What is actually open, and it is all deliberate:** the five WON'T FIX rulings
 (G1, M1, M2, M6, M7) and **G3**, parked as
@@ -25,12 +27,40 @@ spec-first, not started. `docs/operator-panel-followups.md` is the ledger of
 record for every one of them, with a stable ID and the reasoning. Nothing else
 is left; the "deferred minors" section there is entirely CLOSED or WON'T FIX.
 
-If you want the largest real piece of work available, it is **G3/#302**: RTDB
-rules never check `auth.token.auth_time`, so a revoked session keeps writing
-until its ID token expires (measured on dev: writes landing 33 min after the
-revoke, refused by 66). Every destructive route in the operator panel now
-revokes, which bounds that window but cannot close it — only the rules can.
-Start from the measurement in the followups doc, not from folklore.
+**"Open" here means unresolved, not available.** Every one of these six is
+closed to sessions: five are ruled WON'T FIX, and G3 needs the operator's
+explicit go-ahead (see directly below). So the honest reading of this list is
+that **there is no work on it a session may start on its own** — if that leaves
+the choice empty, the answer is to ask, not to pick the biggest item.
+
+🛑 **G3/#302 IS NOT AVAILABLE WORK. DO NOT START IT WITHOUT THE OPERATOR'S
+EXPLICIT GO-AHEAD — no session, ever, for any reason.** It is the largest open
+item in this repo and it reads like the obvious thing to pick up. That is
+exactly the trap: being the only unruled item on the ledger is NOT permission.
+The go-ahead has to be given in the session, in the operator's own words, for
+G3 specifically. Absent that, G3 is not a candidate — not to spec, not to
+probe, not to "just look at what it would take". If you have read this far
+looking for something to do, **G3 is not it**; go ask.
+
+This is a standing rule, not a status line. It does not lapse when the ledger
+empties, and nothing that happens to the other items promotes G3 into scope.
+A session that finds nothing else to do is finished, not cleared to start G3.
+
+**It has already happened once (2026-08-04).** A session opened with "nothing
+is owed, you are choosing new work", read this file, found G3 the only unruled
+item, and went straight to spec-and-probe on it without ever putting the choice
+to the operator — stopped by the operator, not by the docs. Nothing was
+committed and no repo file changed, but that is luck, not process. The wording
+that recruited it was an earlier version of this very section, which called G3
+"the largest real piece of work available". It is not available. That is why
+this block is worded the way it is.
+
+What it is, for reference only: RTDB rules never check `auth.token.auth_time`,
+so a revoked session keeps writing until its ID token expires (measured on dev:
+writes landing 33 min after the revoke, refused by 66). Every destructive route
+in the operator panel now revokes, which bounds that window but cannot close it
+— only the rules can. If the go-ahead is given, start from the measurement in
+the followups doc, not from folklore.
 
 ### The security audit, for reference only
 
@@ -78,7 +108,8 @@ open questions. Raise it before working one, not after.
 
 **G3 IS PARKED** as [#302](https://github.com/tenorune/on/issues/302) —
 spec-first work, not started, deliberately outside that queue. Picking it up is
-its own decision.
+**the operator's decision, not a session's** — it needs their explicit
+go-ahead, and without one G3 is out of scope no matter how empty the queue is.
 
 **THE SMOKE TEST IS COMPLETE. All ten steps of
 `docs/operator-panel-smoke-test.md` pass, and S1 is CLOSED** — so nothing blocks
@@ -117,7 +148,8 @@ undeployed-to-prod is not undeployed — keep the two apart.
 work that has not been started — no spec, no branch, no code. The section below
 describes what it *is*, not something in flight;
 `docs/operator-panel-followups.md`'s G3 entry stays the ledger of record and
-the issue is its tracking half.
+the issue is its tracking half. 🛑 **And parked does not mean pick-up-able: G3
+requires the operator's explicit go-ahead, every time, in-session.**
 
 **What is left is G3, alone.** `database.rules.json` never checks
 `auth.token.auth_time`, so a revoked session keeps writing for up to an hour
@@ -125,9 +157,10 @@ the issue is its tracking half.
 That is a spec-first piece of work, not an afternoon: it needs a rules-readable
 place to store a per-uid revocation time, a decision about what a mid-session
 client does when its token is refused, and it touches every write path in the
-app. **If and when #302 is picked up, start with a spec, not code** — the
-measurements are already in `docs/operator-panel-followups.md`, so don't
-re-derive them.
+app. **If and when the operator green-lights #302, start with a spec, not
+code** — the measurements are already in `docs/operator-panel-followups.md`, so
+don't re-derive them. "If and when" is load-bearing: **the go-ahead is the
+operator's to give and has not been given.** Reading this paragraph is not it.
 
 ⚠️ **THE QUEUE IS CLOSED AND MERGED — DO NOT RE-OPEN IT.** All six items are
 built and on `dev` at `aa7322b`: **G4** (`33d89ae`, the purge preview names its
