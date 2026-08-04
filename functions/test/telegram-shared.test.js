@@ -59,3 +59,54 @@ describe('rootUpdate', () => {
     expect(deps.update).not.toHaveBeenCalled();
   });
 });
+
+// SEC-4 — rootUpdate decided whether a write-map was conflict-free by RAW
+// STRING prefix, and the SDK decides it on the path it will actually write.
+// Those are not the same function. Probed offline against the installed
+// firebase-admin: `db.ref('a//b')` is `/a/b`, `ref('users//')` is `/users`, and
+// `update('/', {'a//': null, 'a/b': null})` is REJECTED for the ancestor overlap
+// that rootUpdate had just certified absent, while `{'x//y': 1}` is accepted and
+// silently retargeted to `/x/y`. Empty segments are dropped, so a key is not the
+// path it looks like — which is the same collapse behind SEC-1/B and SEC-2, and
+// this is the systemic backstop under both.
+describe('rootUpdate refuses a key that is not the path it names', () => {
+  // Collapsing these to `x/y` / `users/u1` and sending them would make
+  // rootUpdate AGREE with the SDK, which is all the disagreement above
+  // strictly requires — but it would still let `users/${uid}` with an empty
+  // uid land as a write to the whole `users` node, with the overlap analysis
+  // nodding along. An empty segment is never intentional (an RTDB key cannot
+  // be empty), so the write-map is refused rather than reinterpreted.
+  test.each(['x//y', '/users/u1/', 'a//', 'users//'])('%p is refused, and nothing is written', async (key) => {
+    const deps = makeStoreDeps();
+    await expect(rootUpdate(deps, { [key]: null })).rejects.toThrow(/empty segment/);
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  // The whole map dies with the bad key: these updates are atomic, and half of
+  // a destructive write-set is worse than none of it.
+  test('one bad key refuses the whole write-map', async () => {
+    const deps = makeStoreDeps();
+    await expect(rootUpdate(deps, { 'users/u1': null, 'a//': null })).rejects.toThrow(/empty segment/);
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  // The sharpest edge: a key that collapses to nothing at all is an update AT
+  // THE ROOT, which replaces the entire database.
+  test.each(['/', '', '//', '///'])('a key naming the root (%p) is refused', async (key) => {
+    const deps = makeStoreDeps();
+    await expect(rootUpdate(deps, { [key]: null })).rejects.toThrow(/root/);
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  // With the above refused, every surviving key IS its own path, so the
+  // ancestor check below can go on comparing raw strings and be right by
+  // construction. The ordinary case must be untouched: every shipped caller
+  // builds keys by interpolating a uid, gid or token, and none of those can
+  // contain a slash.
+  test('a well-formed write-map is passed through unchanged', async () => {
+    const deps = makeStoreDeps();
+    const writes = { 'users/u1/presence': { code: 'AAAAAA' }, 'codeIndex/AAAAAA': 'u1' };
+    await rootUpdate(deps, writes);
+    expect(deps.update).toHaveBeenCalledWith('/', writes);
+  });
+});

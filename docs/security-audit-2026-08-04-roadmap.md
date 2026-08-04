@@ -35,7 +35,7 @@ marked **UNVERIFIED-LIVE** below.
 | SEC-1 | `presence/code` → `codeIndex` charset + ownership | Security | Critical (A) / High (B) | 8 | **CLOSED** |
 | SEC-2 | `uid:"/"` collapses purge/merge paths, defeats the "typo'd uid" guard | Robustness / data-safety | High (robustness); **not** a security finding | 9 (mechanism) | **CLOSED** |
 | SEC-3 | Ops `Origin` guard does not enforce the port | Security (defense-in-depth) | Medium | 10 (defect) / 3 (exploit) | **CLOSED** |
-| SEC-4 | `rootUpdate` overlap check disagrees with the SDK on collapsed paths | Security (defense-in-depth) | Medium | 8 | Open |
+| SEC-4 | `rootUpdate` overlap check disagrees with the SDK on collapsed paths | Security (defense-in-depth) | Medium | 8 | **CLOSED** |
 | SEC-5 | `.ops-audit/` git-ignore rule is path-anchored | Data exposure (repo) | Low | 7 | **CLOSED** |
 | SEC-6 | `merge` / `link-as-production` execute without revoking the session | Hardening / parity | Low; **not** a security finding | 8 | Open |
 | SEC-7 | Ops panel serves no CSP / framing headers | Security (defense-in-depth) | Low | 6 | **CLOSED** |
@@ -208,7 +208,7 @@ Recorded for context; **no action owed**. Closed on
   property the fix must NOT break — a panel genuinely listening on 80 still
   accepts the port-less header, which was green before and after by design.
 
-## SEC-4 — `rootUpdate` overlap check disagrees with the SDK on collapsed paths
+## SEC-4 — `rootUpdate` overlap check disagrees with the SDK on collapsed paths — CLOSED
 
 - **Class: security (defense-in-depth).** The systemic backstop under SEC-2 and
   the codeIndex `"/"` collapse (SEC-1 Variant B): `rootUpdate` decides whether a
@@ -230,6 +230,40 @@ Recorded for context; **no action owed**. Closed on
 - **Deploy surface.** `telegram-shared.js` is a **deployed** Cloud Function
   module — this is the one remaining item that ships to a live surface. Treat its
   review accordingly.
+- **Fix shipped — REFUSES rather than normalizes.** The prescription above
+  (collapse the key, then compare) makes `rootUpdate` agree with the SDK, which
+  is all the *disagreement* strictly requires. It is not enough. A collapsed key
+  is still written: `users/${uid}` built from an empty uid becomes a write to
+  the whole `users` node, and after normalization the overlap analysis nods
+  along instead of catching it — the same catastrophe SEC-2 closed at the ops
+  edge, re-admitted at the shared backstop. So a key whose parsed path differs
+  from the key itself is refused, and the whole write-map with it (these
+  updates are atomic; half a destructive write-set is worse than none). A key
+  that parses to empty — `"/"`, `""`, `"//"` — is refused as the root write it
+  is. Every surviving key then IS its own path, so the existing raw-string
+  ancestor check is right by construction and was left alone.
+- **Evidence the refusal is safe for shipped callers.** Planted the refusal and
+  ran the **whole** functions suite: only the four SEC-4 cases being written
+  failed; all 32 other suites — every `rootUpdate` caller in `telegram.js`,
+  `telegram-auth.js` and `ops/merge.js`, including expunge, graduation and the
+  merge write-sets — stayed green. No shipped caller emits a key with an empty
+  segment, and none can: RTDB keys cannot contain `/`, and every interpolated
+  value is a uid, gid, tgId or token.
+- **Verification against the real SDK, not only the mock.** Probed offline
+  against the installed `firebase-admin`: `ref('a//b')` → `/a/b`,
+  `ref('users//')` → `/users`, `ref('/')` → root, and
+  `update('/', {'a//': null, 'a/b': null})` is **rejected** for the ancestor
+  overlap `rootUpdate` had just certified absent, while `{'x//y': 1}` is
+  **accepted and silently retargeted** to `/x/y` — both halves of the defect,
+  confirmed. After the fix, the two well-formed write-maps still pass the SDK's
+  own argument validation and the two malformed ones never reach it. Five new
+  cases, RED first. Functions 1100/1100; rules 119/119, typechecks clean, web
+  2149/2149 unchanged.
+- **Deploy note for the maintainer.** This is the one change in the SEC series
+  that alters a **deployed** artifact. Merging it to `dev` deploys it ungated.
+  Its behaviour change is a new *refusal* on a write-map no caller produces, so
+  the expected production effect is none — but "none" is an inference from the
+  suite and the SDK probe, not from a live run.
 
 ## SEC-5 — `.ops-audit/` git-ignore rule is path-anchored — CLOSED
 
@@ -378,9 +412,10 @@ affect the correctness of a destructive write?).
 
 ## Suggested sequencing
 
-1. **SEC-4** first — it is the only deployed surface, and it is the systemic
-   backstop for SEC-2 and SEC-1/B. Do it carefully, with the merge/expunge tests
-   green either side.
+1. ~~**SEC-4**~~ — **DONE** (last, not first: the operator asked for the
+   no-deploy items ahead of it). Shipped as a refusal, not the normalization
+   this doc proposed — see its entry for why, and for the evidence that no
+   shipped caller is affected.
 2. ~~**SEC-2**~~ — **DONE** (`requireUid` + the builder asserts + the positive
    guards, bundled as one change, as planned). It did not close SEC-4; item 1
    still stands on its own.

@@ -11,15 +11,15 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**START HERE (2026-08-04): SEC-4, the first open item in the security-audit
-roadmap.** A security review of the `origin/main` → `dev` diff (the operator
-panel and everything descended from it) ran on 2026-08-04. It produced one real
-security finding — **SEC-1**, the `presence/code` → `codeIndex` charset +
-ownership gap — and itemized everything else, forward-first, in
-**`docs/security-audit-2026-08-04-roadmap.md`**. That doc is the source of
-truth for SEC-3…SEC-8, not this section.
+**START HERE (2026-08-04): SEC-6 + SEC-8, the last open items in the
+security-audit roadmap.** A security review of the `origin/main` → `dev` diff
+(the operator panel and everything descended from it) ran on 2026-08-04. It
+produced one real security finding — **SEC-1**, the `presence/code` →
+`codeIndex` charset + ownership gap — and itemized everything else,
+forward-first, in **`docs/security-audit-2026-08-04-roadmap.md`**. That doc is
+the source of truth for what remains, not this section.
 
-**Five of the eight are now CLOSED, all on the working branch
+**Six of the eight are now CLOSED, all on the working branch
 `claude/sec-2-revoked-sessions-l99r3u` and NOT merged — the maintainer's call.**
 (That branch carries the SEC-1 work verbatim; it and
 `claude/knockknock-revoked-sessions-im20og` share the tip `b546e40` the SEC-2
@@ -42,16 +42,26 @@ commit builds on.)
   and a per-response script nonce (`CSP_NONCE_PLACEHOLDER` in `panel.html`) are
   load-bearing, and the page was verified in headless Chromium, not only by
   unit tests.
+- **SEC-4** — `rootUpdate` decided "is this write-map conflict-free?" by raw
+  string, and the SDK decides it on the path it will actually write; a key with
+  an empty segment (`users//`) is re-targeted to a broader node. It now
+  **refuses** such a key — and the whole atomic map with it — rather than
+  normalizing it, because normalizing would still let an empty uid write
+  `/users` with the overlap check agreeing. **This is the one change in the
+  series that touches a DEPLOYED artifact** (`functions/telegram-shared.js`);
+  merging to `dev` deploys it ungated. No shipped caller emits such a key —
+  established by planting the refusal and watching all 32 other suites stay
+  green — so the expected production effect is none, but that is an inference
+  from the suite plus an offline SDK probe, not from a live run.
 - **SEC-5** — the `.ops-audit/` ignore rule is unanchored, and the default
   audit dir is now anchored to `functions/` rather than to the operator's CWD,
   so a pre-image dump (full account data, email included) cannot land somewhere
   no ignore rule covers. `git check-ignore` tests it directly — the roadmap's
   "N/A (config)" was wrong.
 
-Open: **SEC-4**, SEC-6, SEC-8. Next is **SEC-4**, and it is the one that needs
-care: **SEC-4 is the only remaining item on a deployed surface**
-(`functions/telegram-shared.js`). SEC-6 (`ops/**` + docs) and SEC-8 (docs) ride
-no deploy. SEC-2 did **not** subsume SEC-4 — it closed the plant
+Open: **SEC-6 + SEC-8** — the revoke-parity gap and the doc-ID correction, which
+the roadmap sequences as one piece of work. Both are `ops/**` + docs and ride no
+deploy. Nothing else in the audit is outstanding. SEC-2 did **not** subsume SEC-4 — it closed the plant
 at this panel's entry layers; `rootUpdate` still disagrees with the SDK about
 what path a collapsed key names. G3/#302 stays parked and out of scope — do
 **not** fold SEC-6 into it (they are different mechanisms; see the roadmap's
