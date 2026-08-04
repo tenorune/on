@@ -329,32 +329,56 @@ code. This process holds a full database-admin credential and has **no login**, 
 a reachable socket is a full compromise.
 
 Carried over from the original smoke test's step 6c, which this page omitted in
-its first draft.
+its first draft — and then strengthened, because 6c's off-box form proves less
+than it looks like it does.
 
-**With the panel running**, from a second machine on the same network:
+**Run the on-host variant first. It is the decisive one.** With the panel
+running, from the **panel machine itself**, against that machine's own LAN IP:
+
+```bash
+ip -4 addr show scope global | grep -oP 'inet \K[\d.]+'   # confirm the IP is this machine's
+curl -sS -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' --max-time 5 http://127.0.0.1:8787/
+curl -sS -v --max-time 5 http://<that-lan-ip>:8787/
+```
+
+**Expect:** `HTTP 200` on loopback, and `Connection refused` on the LAN IP.
+
+**Why this beats the off-box form.** The packet never leaves the host — no
+switch, no access point, no router — so with the host firewall off there is
+nothing left in the path that *could* refuse it except the socket. A refusal
+here is attributable to `BIND_ADDRESS` and to nothing else. An off-box refusal
+is equally consistent with AP client isolation or a router rule, which is why
+the original 6c could never separate "correctly bound" from "network in the
+way".
+
+The two facts together are the proof: the panel **serves** on `127.0.0.1:8787`,
+and the same host **refuses** `<lan-ip>:8787`. That is what loopback-only
+binding looks like from outside the process.
+
+**Then the off-box form**, as a supplementary — it adds the network path, which
+the on-host run deliberately excludes:
 
 ```bash
 curl -sS --max-time 5 http://<the-panel-machine-lan-ip>:8787/api/snapshot
 ```
 
-**Expect:** connection refused or timeout — not a response.
+⚠️ **Read the errno, not curl's summary line.** `curl: (7) … Couldn't connect to
+server` is generic and is printed for several different causes; only `-v` names
+the real one, on the line above:
 
-⚠️ **Run the control in the same sitting, or the result means nothing.** A panel
-that is not running produces a *byte-identical* `Couldn't connect to server`. So
-either side of the off-box probe, from the panel machine itself:
+| `-v` says | Means | Verdict |
+|---|---|---|
+| `Connection refused` | TCP RST — nothing bound to that address | ✅ the pass |
+| `Connection timed out`, or hangs to `--max-time` | SYN dropped — firewall DROP or AP isolation | ❌ inconclusive; the bind address was never reached |
+| `No route to host` | ARP/routing failed — wrong IP, or machine offline | ❌ the test did not run |
 
-```bash
-curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/   # expect 200
-```
+⚠️ **The panel must be running, and say so in the record.** A panel that is down
+produces a byte-identical `Couldn't connect to server`, so the loopback `200`
+above is a required control, not a nicety.
 
-A `200` on loopback and a refusal off-box is the pass. A refusal on both means
-the panel was down and the test did not run.
-
-**What this does NOT distinguish:** a host firewall dropping the connection from
-the bind address refusing it. Both are safe outcomes today, but only one is in
-the code — a firewall rule can be changed by someone who does not know why it is
-there. The code-level guarantee is `BIND_ADDRESS` plus the absent `--host` flag;
-this step is consistent with it, not proof of it.
+A first off-box attempt against a cold ARP cache can take ~1s before the RST
+comes back; a second run should be near-instant. Slow is not by itself a
+failure — the errno is what decides.
 
 ---
 
@@ -904,7 +928,7 @@ row, and a row that owes something says so.
 | A3 | CSP + framing, nonce fresh and pinned | **OBSERVED 2026-08-04** | header/body nonce matched; 0 placeholders left |
 | A4 | uid refusals, 7 preview/detail + 3 execute | **OBSERVED 2026-08-04** | merge/link previews deferred to B4 — ordering, not a defect |
 | A5 | gitignore at 3 depths + CWD-independent audit dir | **OBSERVED 2026-08-04** | launched from repo root; dir still absolute under `functions/` |
-| A6 | Socket not reachable off-box | **OBSERVED 2026-08-04 — operator machine, CONTROL NOT RECORDED** | `curl` to `192.168.178.81:8787` → `Failed to connect … after 1004 ms`. Refusal is the expected result. ⚠️ The loopback `200` control was not recorded in the same sitting, and a panel that is down produces the identical error — so this row is one confirmation short of a PASS. Re-run with the control, or confirm the panel was serving at the time. |
+| A6 | Socket not reachable off-box | **PASS — OBSERVED 2026-08-04, operator machine** | Panel confirmed running. Off-box `curl` to `192.168.178.81:8787` → `Failed to connect … after 1004 ms`, and **the same command on the panel machine itself, against its own LAN IP, refused identically** with the host firewall **off**. That on-host run is what makes it conclusive: no switch, AP or router in the path, so nothing but `BIND_ADDRESS` can account for the refusal. Reproduced in a session container the same day (`Connection refused`, 0 ms) to confirm the message shape. ⚠️ Not separately recorded: the literal `-v` errno on the operator machine, and that `192.168.178.81` is an address on that host. Neither changes the verdict — an on-host refusal with the firewall off has no other explanation — but the errno is the thing to capture next time. |
 | B0 | Panel runs under the CSP in a browser | | |
 | B1 | G4 cascade block renders, and `none predicted` where it should | | |
 | B2 | M8 tick appears and re-previews | | |
