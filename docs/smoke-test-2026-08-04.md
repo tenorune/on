@@ -1,8 +1,18 @@
 # Smoke test — the followup queue + the security audit (2026-08-04)
 
-**Status: NOT RUN.** Part A was exercised in a session container on a fake
-credential (see each step); Parts B–E have never been run at all. Nothing here
-is a passing row until an operator runs it and fills in the results table.
+**Status (2026-08-04): PARTS A AND B PASS. C, D and E are UNRUN.**
+
+- **Part A** — A0–A5 exercised in a session container on a fake credential;
+  **A6** run on the operator machine, and it is the only one that needed to be.
+- **Part B** — all five run by the operator against the dev project. That is the
+  first time G4's cascade block and M8's adopt tick have been seen in a browser
+  against live data rather than canned responses.
+- **Parts C, D and E have never been run.** Every destructive check, every
+  client/device check, and the deployed-functions regression are all still owed —
+  including **C1b**, SEC-6's revoke against real Firebase Auth, which its own
+  roadmap marks UNVERIFIED-LIVE.
+
+Nothing is a passing row until the results table at the bottom says so.
 
 ## What this is
 
@@ -76,9 +86,17 @@ against a **well-formed but fake** service-account credential. This is the
 cheapest tier and it covers four of the eight audit items.
 
 **OBSERVED 2026-08-04** in a session container at `c42cd94`, on a generated fake
-service account, panel on `:8787`. Re-run on the operator machine to confirm the
-build being run there behaves the same — the point of a smoke test is the
-machine, not the logic.
+service account, panel on `:8787`.
+
+⚠️ **Do not re-run A0–A5 on the operator machine; it tells you nothing.** Every
+one of them is pure in-process logic over the same source tree — argument
+parsing, a hand-rolled authority comparison, a template string, a regex,
+`git check-ignore` against a committed file, and an audit path resolved from
+`HERE` rather than the CWD. None can differ between machines at the same commit,
+so a second run is a tautology, not an observation. **A6 is the exception** and
+is the only step in this part that had to be run on real hardware: "nothing else
+on the network can reach this socket" is a property of the machine, not of the
+code. What *would* reopen A0–A5 is a different commit — not a different machine.
 
 ### A0. Start a panel with no real project
 
@@ -598,14 +616,65 @@ must not have changed the write-set.
 **C1b — the Auth-backed case, the one never observed.** Needs an account that has
 actually completed `signInWithCustomToken` on dev, so it has a real Auth record.
 
-The observable is `tokensValidAfterTime` advancing across the merge. Read it
-either side — Firebase console → Authentication, or an Admin-SDK read of
-`auth.listUsers`.
+The observable is `tokensValidAfterTime` advancing across the merge.
 
-⚠️ **Do not use `ops/verify-auth-delete.js` as the before-reader.** Its step 2
-performs a revoke of its own, so running it first advances the very field you are
-about to measure. It is the right tool for the purge/Auth-delete leg and the
-wrong one here.
+⚠️ **Nothing in this repo reads that field without also changing it, and the
+Firebase console does not show it at all.** `ops/verify-auth-delete.js` is the
+only tool that reports it, and its step 2 performs a **revoke of its own** — so
+running it as the "before" reader advances the very field you are about to
+measure. It is the right tool for the purge/Auth-delete leg and the wrong one
+here. The console's Authentication tab shows created and last-signed-in, not
+`tokensValidAfterTime`.
+
+So use a **read-only** reader. It has to live under `functions/` — Node resolves
+ESM imports relative to the file, not the shell, so a copy in `/tmp` fails with
+`ERR_MODULE_NOT_FOUND` before it reaches Firebase:
+
+```bash
+cd /path/to/on/functions
+cat > read-auth.mjs <<'SCRIPT'
+import { initializeApp, cert } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+const [projectId, uid] = process.argv.slice(2);
+if (!projectId || !uid) { console.error('usage: node read-auth.mjs <project-id> <uid>'); process.exit(2); }
+initializeApp({ credential: cert(JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)), projectId });
+try {
+  const u = await getAuth().getUser(uid);
+  console.log(JSON.stringify({
+    uid: u.uid,
+    tokensValidAfterTime: u.tokensValidAfterTime ?? null,
+    validSinceEpochSec: u.tokensValidAfterTime ? Date.parse(u.tokensValidAfterTime) / 1000 : null,
+    providerCount: u.providerData.length,
+    lastRefreshTime: u.metadata.lastRefreshTime ?? null,
+  }, null, 2));
+} catch (e) {
+  console.log(e.code === 'auth/user-not-found' ? 'NO AUTH RECORD' : `ERROR ${e.code || e}`);
+}
+SCRIPT
+
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+node read-auth.mjs $DEV <loser-uid>     # BEFORE the merge
+# ... run the merge through the panel ...
+node read-auth.mjs $DEV <loser-uid>     # AFTER
+rm read-auth.mjs                        # it is untracked and must not be committed
+```
+
+It reads and writes nothing. `NO AUTH RECORD` means you picked an RTDB-only
+account and are in case C1a, not C1b.
+
+**Expect:** `tokensValidAfterTime` present and **later** after the merge than
+before it, and the merge otherwise behaving as C1a. Record both timestamps.
+
+**Verification of the reader itself, 2026-08-04:** run in a session container
+against a deliberately fake service account, it reached `getUser` and reported
+`ERROR app/invalid-credential` through its own catch — so the wiring, the
+argument parsing and the error path are exercised. It has **never** run against
+a real project, and the JSON branch above is therefore unexercised.
+
+An alternative if you would rather not paste a script: `npx firebase auth:export`
+carries the same value as `validSince` (epoch seconds). ⚠️ It exports **every
+user's** auth record to a file — write it outside the repo, since no `.gitignore`
+rule covers it and this is exactly the shape SEC-5 was about.
 
 **Expect:** `tokensValidAfterTime` present and **later** after the merge than
 before it, and the merge otherwise behaving as C1a. Record both timestamps.
@@ -929,11 +998,11 @@ row, and a row that owes something says so.
 | A4 | uid refusals, 7 preview/detail + 3 execute | **OBSERVED 2026-08-04** | merge/link previews deferred to B4 — ordering, not a defect |
 | A5 | gitignore at 3 depths + CWD-independent audit dir | **OBSERVED 2026-08-04** | launched from repo root; dir still absolute under `functions/` |
 | A6 | Socket not reachable off-box | **PASS — OBSERVED 2026-08-04, operator machine** | Panel confirmed running. Off-box `curl` to `192.168.178.81:8787` → `Failed to connect … after 1004 ms`, and **the same command on the panel machine itself, against its own LAN IP, refused identically** with the host firewall **off**. That on-host run is what makes it conclusive: no switch, AP or router in the path, so nothing but `BIND_ADDRESS` can account for the refusal. Reproduced in a session container the same day (`Connection refused`, 0 ms) to confirm the message shape. ⚠️ Not separately recorded: the literal `-v` errno on the operator machine, and that `192.168.178.81` is an address on that host. Neither changes the verdict — an on-host refusal with the firewall off has no other explanation — but the errno is the thing to capture next time. |
-| B0 | Panel runs under the CSP in a browser | | |
-| B1 | G4 cascade block renders, and `none predicted` where it should | | |
-| B2 | M8 tick appears and re-previews | | |
-| B3 | SEC-6 footnote on all four previews, right account named | | |
-| B4 | merge/link preview uid refusal; integrity + canvases | | |
+| B0 | Panel runs under the CSP in a browser | **PASS — OBSERVED 2026-08-04** | operator machine, dev project |
+| B1 | G4 cascade block renders, and `none predicted` where it should | **PASS — OBSERVED 2026-08-04** | first time the cascade block has been rendered in a browser |
+| B2 | M8 tick appears and re-previews | **PASS — OBSERVED 2026-08-04** | first time the tick has driven a live preview rather than canned responses |
+| B3 | SEC-6 footnote on all four previews, right account named | **PASS — OBSERVED 2026-08-04** | |
+| B4 | merge/link preview uid refusal; integrity + canvases | **PASS — OBSERVED 2026-08-04** | closes A4's deferred ordering case on a real project |
 | C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | | |
 | C1b | SEC-6 merge: `tokensValidAfterTime` advances | | **the never-observed one** |
 | C2 | SEC-6 link-as-production revokes the derived account only | | |
