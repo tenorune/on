@@ -22,7 +22,7 @@
         ".write": "auth != null && auth.uid === $uid",
         "presence": {
           ".read": "auth != null",
-          "code": { ".validate": "newData.isString() && newData.val().length <= 32" },
+          "code": { ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,32}$/)" },
           "status": { ".validate": "newData.isString() && newData.val().length <= 16" },
           "statusColor": { ".validate": "newData.isString() && newData.val().length <= 64" },
           "paletteKey": { ".validate": "newData.isString() && newData.val().length <= 64" },

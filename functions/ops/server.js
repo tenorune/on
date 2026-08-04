@@ -39,6 +39,7 @@ import {
   buildPurgePlan, applyPurgePlan, buildLinkImpact, buildProductionLinkPlan,
 } from './purge.js';
 import { capturePreImage, writeAuditRecord, appendAuditOutcome } from './audit.js';
+import { assertUid } from './uid.js';
 
 // The ambient `process` shim (types/app.d.ts) types only .env — it exists for
 // browser bundle code. This Node CLI also needs argv/exit, so view the global
@@ -49,6 +50,21 @@ const proc = /** @type {{ argv: string[]; env: Record<string, string | undefined
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_REGION = 'europe-west1';
+
+/** This module's own directory — the panel's files are found relative to it. */
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Where pre-image dumps land unless the operator names somewhere else.
+ *
+ * Anchored to THIS file's tree, not to the CWD. The launcher accepts
+ * `node functions/ops/server.js` from the repo root as readily as
+ * `node ops/server.js` from `functions/`, and a relative default put the dumps
+ * — full account data, email included when the Auth-delete box is ticked —
+ * wherever the operator happened to be standing. One predictable location is
+ * also what makes a single `.gitignore` rule able to cover them.
+ */
+const DEFAULT_AUDIT_DIR = join(HERE, '..', '.ops-audit');
 
 /** The ONLY address this server ever binds. See the file header. */
 export const BIND_ADDRESS = '127.0.0.1';
@@ -65,6 +81,13 @@ export const BIND_ADDRESS = '127.0.0.1';
  * The defence is to check the name the browser THINKS it connected to.
  */
 export const ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
+
+/**
+ * The token panel.html carries on its inline `<script>`, replaced with a fresh
+ * per-response nonce when the page is served. Exported so the page, the header
+ * and the test that pins them together all name the same string.
+ */
+export const CSP_NONCE_PLACEHOLDER = '__CSP_NONCE__';
 
 /** @typedef {ReturnType<typeof makeOpsDeps>} OpsWiring */
 /** @typedef {OpsWiring['deps']} OpsDeps */
@@ -203,7 +226,7 @@ export function parseArgs(argv, env) {
     prodProject: cleaned(val('--prod-project')) || cleaned(env.PROD_PROJECT),
     prodAcknowledged: argv.includes('--i-know-this-is-prod'),
     uidSecret: cleaned(env.TELEGRAM_UID_SECRET),
-    auditDir: cleaned(val('--audit-dir')) || '.ops-audit',
+    auditDir: cleaned(val('--audit-dir')) || DEFAULT_AUDIT_DIR,
   };
 }
 
@@ -260,16 +283,26 @@ function splitAuthority(authority) {
 
 /**
  * Is this authority one of ours? The port must match the socket we are
- * actually listening on when the header carries one.
+ * actually listening on.
+ *
+ * An ABSENT port is not a wildcard — it is the scheme's default, and omitting
+ * it is exactly how a browser serialises an origin on 80/443. Treating "no
+ * port" as "any port" accepted a page on `http://127.0.0.1` as this panel
+ * while correctly refusing `http://127.0.0.1:3000`, which is the opposite of
+ * what the README promises.
+ *
  * @param {string | undefined} authority
  * @param {number | null | undefined} localPort
+ * @param {number} defaultPort the port the scheme implies when the header
+ *   carries none — 80 for http, 443 for https
  */
-function isLoopbackAuthority(authority, localPort) {
+function isLoopbackAuthority(authority, localPort, defaultPort) {
   if (typeof authority !== 'string' || authority === '') return false;
   const parsed = splitAuthority(authority);
   if (parsed === null) return false;
   if (!ALLOWED_HOSTS.includes(parsed.name)) return false;
-  if (parsed.port !== null && localPort != null && parsed.port !== localPort) return false;
+  const port = parsed.port === null ? defaultPort : parsed.port;
+  if (localPort != null && port !== localPort) return false;
   return true;
 }
 
@@ -296,15 +329,19 @@ function isLoopbackAuthority(authority, localPort) {
 export function originRefusal(req) {
   const localPort = req.socket?.localPort ?? null;
   const host = req.headers.host;
-  if (!isLoopbackAuthority(host, localPort)) {
+  // createHttpServer speaks plain http and binds loopback only — there is no
+  // TLS here — so a Host carrying no port can only mean http's default, 80.
+  if (!isLoopbackAuthority(host, localPort, 80)) {
     return `refused: Host "${String(host)}" is not this server's loopback address — `
       + 'this panel answers only to 127.0.0.1 / localhost on its own port (DNS-rebinding guard)';
   }
   const origin = req.headers.origin;
   if (origin !== undefined) {
     // "null" (a sandboxed or file: document) is not a loopback origin either.
-    const parsed = /^https?:\/\/(.+)$/.exec(origin);
-    if (parsed === null || !isLoopbackAuthority(parsed[1], localPort)) {
+    // The scheme is captured because it decides which default port an origin
+    // without one means: `https://127.0.0.1` is 443, not 80.
+    const parsed = /^(https?):\/\/(.+)$/.exec(origin);
+    if (parsed === null || !isLoopbackAuthority(parsed[2], localPort, parsed[1] === 'https' ? 443 : 80)) {
       return `refused: cross-origin request from "${origin}"`;
     }
   }
@@ -331,6 +368,19 @@ function asBody(input) {
 function requireString(value, field) {
   if (typeof value !== 'string' || value === '') throw new Error(`${field} is required`);
   return value;
+}
+
+/**
+ * A uid the operator typed, checked for KEY legality before it is interpolated
+ * into a path. `requireString` accepts `"/"`, which is not a uid at all: the
+ * SDK collapses `users//` to the whole `users` node, the plan builders read
+ * that back as an account, and one typed character becomes a whole-node
+ * delete. Every uid-typed field goes through here — a check on `uid` alone
+ * would leave merge and link wide open. See ops/uid.js.
+ * @param {unknown} value @param {string} field @returns {string}
+ */
+function requireUid(value, field) {
+  return assertUid(requireString(value, field), field);
 }
 
 /** @param {unknown} value @param {string} field @returns {string[]} */
@@ -624,8 +674,8 @@ export function createRoutes(ctx) {
    * @param {number} now
    */
   const mergeOptions = (body, canvasKeys, now) => ({
-    loserUid: requireString(body.loserUid, 'loserUid'),
-    survivorUid: requireString(body.survivorUid, 'survivorUid'),
+    loserUid: requireUid(body.loserUid, 'loserUid'),
+    survivorUid: requireUid(body.survivorUid, 'survivorUid'),
     adoptGroupNames: stringList(body.adoptGroupNames, 'adoptGroupNames'),
     telegramRepoint: Boolean(body.telegramRepoint),
     canvasKeys,
@@ -638,8 +688,8 @@ export function createRoutes(ctx) {
    * @param {number} now
    */
   const linkOptions = (body, now) => ({
-    derivedUid: requireString(body.derivedUid, 'derivedUid'),
-    phraseUid: requireString(body.phraseUid, 'phraseUid'),
+    derivedUid: requireUid(body.derivedUid, 'derivedUid'),
+    phraseUid: requireUid(body.phraseUid, 'phraseUid'),
     now,
   });
 
@@ -660,7 +710,7 @@ export function createRoutes(ctx) {
     },
 
     'GET /api/detail': async (input) => {
-      const uid = requireString(asQuery(input).get('uid'), 'uid');
+      const uid = requireUid(asQuery(input).get('uid'), 'uid');
       const snap = await current();
       const detail = buildDetail(snap, uid, opts.uidSecret, snap.takenAt);
       if (!detail) throw new Error(`no account at users/${uid}`);
@@ -676,11 +726,11 @@ export function createRoutes(ctx) {
       const body = asBody(input);
       const snap = await current();
       const plan = await buildMergePlan(deps, mergeOptions(body, canvasKeysOf(snap), deps.now()));
-      return { plan, nonce: issueNonce(requireString(body.loserUid, 'loserUid'), plan), canvasKeys: canvasScope(snap) };
+      return { plan, nonce: issueNonce(requireUid(body.loserUid, 'loserUid'), plan), canvasKeys: canvasScope(snap) };
     },
     'POST /api/merge/execute': async (input) => {
       const body = asBody(input);
-      const approved = consumeConfirm(body, requireString(body.loserUid, 'loserUid'));
+      const approved = consumeConfirm(body, requireUid(body.loserUid, 'loserUid'));
       // Re-read rather than reuse the cache: the snapshot behind the preview is
       // minutes old by the time an operator types a uid, and a stale
       // snapshot-derived input gating a destructive write has already destroyed
@@ -696,14 +746,14 @@ export function createRoutes(ctx) {
 
     'POST /api/purge/preview': async (input) => {
       const body = asBody(input);
-      const uid = requireString(body.uid, 'uid');
+      const uid = requireUid(body.uid, 'uid');
       const snap = await current();
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
       return { plan, nonce: issueNonce(uid, plan), canvasKeys: canvasScope(snap) };
     },
     'POST /api/purge/execute': async (input) => {
       const body = asBody(input);
-      const uid = requireString(body.uid, 'uid');
+      const uid = requireUid(body.uid, 'uid');
       const approved = consumeConfirm(body, uid);
       const snap = await refresh();
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
@@ -770,7 +820,7 @@ export function createRoutes(ctx) {
     'POST /api/link/impact': async (input) => {
       const body = asBody(input);
       const snap = await current();
-      const impact = await buildLinkImpact(deps, requireString(body.derivedUid, 'derivedUid'), canvasKeysOf(snap));
+      const impact = await buildLinkImpact(deps, requireUid(body.derivedUid, 'derivedUid'), canvasKeysOf(snap));
       return { ...impact, canvasKeys: canvasScope(snap) };
     },
     'POST /api/link/production/preview': async (input) => {
@@ -782,7 +832,7 @@ export function createRoutes(ctx) {
     },
     'POST /api/link/production/execute': async (input) => {
       const body = asBody(input);
-      const approved = consumeConfirm(body, requireString(body.derivedUid, 'derivedUid'));
+      const approved = consumeConfirm(body, requireUid(body.derivedUid, 'derivedUid'));
       const snap = await refresh();
       const options = linkOptions(body, deps.now());
       const plan = await buildProductionLinkPlan(deps, options, canvasKeysOf(snap));
@@ -795,6 +845,42 @@ export function createRoutes(ctx) {
 // --- HTTP ------------------------------------------------------------------
 
 /**
+ * On EVERY response, page or API, refusal or success.
+ *
+ * This is a backstop and nothing more: there is no click-only destructive path
+ * to protect: every destructive route needs a uid the operator TYPED, checked
+ * server-side against a preview nonce, and a framed page can neither read that
+ * uid nor type it. What these buy is the day after a DOM-XSS is introduced
+ * into panel.html — which renders rows, details and previews through
+ * innerHTML — in a process that holds a database-admin credential.
+ *
+ * `default-src 'none'` is the whole policy for an API response: JSON loads
+ * nothing. The page needs three exceptions and gets them below, per response.
+ */
+const BASE_SECURITY_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+};
+
+/**
+ * The page's policy. The inline script is allowed by NONCE rather than by
+ * 'unsafe-inline', which would permit the very thing the header is here to
+ * stop — an injected `<img onerror=…>` is an inline script. Styles keep
+ * 'unsafe-inline' (a style injection cannot reach the API), and `connect-src`
+ * has to name 'self' or the panel's own fetch calls die with it.
+ * @param {string} nonce
+ */
+const pageCsp = (nonce) => [
+  "default-src 'none'",
+  `script-src 'nonce-${nonce}'`,
+  "style-src 'unsafe-inline'",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+/**
  * @param {{ routes: Record<string, RouteHandler>, page: string }} ctx
  * @returns {import('node:http').Server}
  */
@@ -802,8 +888,14 @@ export function createHttpServer({ routes, page }) {
   return createServer((req, res) => {
     const url = new URL(req.url || '/', `http://${BIND_ADDRESS}`);
     const key = `${req.method} ${url.pathname}`;
-    /** @param {number} code @param {string} type @param {string} body */
-    const send = (code, type, body) => { res.writeHead(code, { 'Content-Type': type }); res.end(body); };
+    /**
+     * @param {number} code @param {string} type @param {string} body
+     * @param {Record<string, string>} [headers] overrides, for the page's CSP
+     */
+    const send = (code, type, body, headers) => {
+      res.writeHead(code, { 'Content-Type': type, ...BASE_SECURITY_HEADERS, ...headers });
+      res.end(body);
+    };
 
     // Before ANY routing, including the page: this server has no auth and holds
     // a database-admin credential, so a request that did not come from the
@@ -811,7 +903,13 @@ export function createHttpServer({ routes, page }) {
     const refusal = originRefusal(req);
     if (refusal !== null) return send(403, 'text/plain', refusal);
 
-    if (key === 'GET /') return send(200, 'text/html; charset=utf-8', page);
+    if (key === 'GET /') {
+      // Fresh per response: a nonce an attacker can predict is not a nonce.
+      const nonce = randomUUID();
+      return send(200, 'text/html; charset=utf-8', page.replaceAll(CSP_NONCE_PLACEHOLDER, nonce), {
+        'Content-Security-Policy': pageCsp(nonce),
+      });
+    }
     const handler = routes[key];
     if (!handler) return send(404, 'text/plain', 'not found');
 
@@ -840,8 +938,6 @@ export function createHttpServer({ routes, page }) {
     return undefined;
   });
 }
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
  * functions/.env, or null when there is no such file. A read that fails for any

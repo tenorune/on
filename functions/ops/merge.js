@@ -28,6 +28,10 @@ import { canvasPeers } from './project.js';
 // ops/purge.js. Both READ telegramUsers/{tgId} before touching it — see
 // telegram-link-write.js for why a global key must never be written unread.
 import { buildLinkWrites, buildMappingTeardown } from '../telegram-link-write.js';
+// Both uids are KEYS in every path built below, and `"/"` collapses them all —
+// see ops/uid.js. Asserted here as well as at the panel edge because this
+// builder is independently importable.
+import { assertUid } from './uid.js';
 
 /** Transient: a knock or a call is stale within seconds, and merging call state resurrects stuck calls (D3). */
 export const DROP_MAILBOXES = ['knocks', 'calls'];
@@ -78,6 +82,8 @@ export const canvasKeyFor = (a, b) => [a, b].sort().join('_');
  */
 export async function buildMergePlan(deps, opts) {
   const { loserUid: L, survivorUid: S, now } = opts;
+  assertUid(L, 'loserUid');
+  assertUid(S, 'survivorUid');
   if (L === S) throw new Error('merge: loser and survivor are the same uid');
   const adopt = new Set(opts.adoptGroupNames || []);
   // The shallow canvas key list is the only way to learn which canvases exist
@@ -100,7 +106,10 @@ export async function buildMergePlan(deps, opts) {
     // through its uniform per-box loop.
     deps.getVal(`pendingInvites/${L}`),
   ]);
-  if (!loser) throw new Error(`merge: no account at users/${L}`);
+  // POSITIVE, like buildPurgePlan's: truthiness is satisfied by any populated
+  // node, an account's or not. The survivor side is already positive — it has
+  // to have a share code to be a merge target at all (below).
+  if (!loser?.presence) throw new Error(`merge: no account at users/${L}`);
   if (!survivor) throw new Error(`merge: no account at users/${S} — use graduateAccountData for a free target`);
 
   /** @type {Record<string, unknown>} */
@@ -263,7 +272,13 @@ export async function buildMergePlan(deps, opts) {
 
   // --- identity: free the loser code (D1), move invite tokens ---------------
   const loserCode = loser.presence?.code;
-  if (loserCode) writes[`codeIndex/${loserCode}`] = null;
+  // Free the loser code only when codeIndex confirms it is the loser's:
+  // presence/code is the loser's own field and could name a victim's live code,
+  // and this null runs under the Admin SDK where the owner-only delete rule does
+  // not apply. See ops-merge.test.js "Variant A".
+  if (loserCode && (await deps.getVal(`codeIndex/${loserCode}`)) === L) {
+    writes[`codeIndex/${loserCode}`] = null;
+  }
   for (const [token, rec] of Object.entries(loser.invites || {})) {
     writes[`users/${S}/invites/${token}`] = rec;
     // `scope` is load-bearing: resolveInvitePreviewHandler (functions/invites.js:27,35)

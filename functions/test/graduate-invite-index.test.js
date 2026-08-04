@@ -79,6 +79,24 @@ describe('graduateAccountData: the invite index survives the rename intact', () 
     expect(deps.store['codeIndex/DERV01']).toBe(NEW);
   });
 
+  // Variant A, hijack form: presence/code is the account's own field, but
+  // codeIndex/{code} is authoritative for ownership. An account that planted a
+  // VICTIM's live code in its own presence would, on graduation, repoint
+  // codeIndex/{victimCode} to the new uid under the Admin SDK — stealing the
+  // victim's code so contacts scanning it reach the graduate. Repoint only when
+  // the entry actually belongs to the account graduating.
+  test('does NOT repoint a codeIndex entry the account does not own (Variant A hijack)', async () => {
+    const deps = makeStoreDeps({
+      [`users/${OLD}`]: { presence: { code: 'VICT01' } }, // planted a victim's code
+      [`userPrefs/${OLD}`]: {},
+      'codeIndex/VICT01': 'victim', // authoritative: the entry belongs to the victim
+    });
+
+    await graduateAccountData(deps, OLD, NEW);
+
+    expect(deps.store['codeIndex/VICT01']).toBe('victim'); // NOT repointed to NEW
+  });
+
   test('an account with no invites writes no index entries', async () => {
     const deps = makeStoreDeps({
       [`users/${OLD}`]: { presence: { code: 'DERV01' } },

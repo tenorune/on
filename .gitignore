@@ -15,4 +15,4 @@ NOTES.md
 .worktrees/
 docs/prototypes/
 /sw.js
-functions/.ops-audit/
+.ops-audit/

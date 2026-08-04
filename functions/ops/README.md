@@ -75,7 +75,7 @@ nothing about what the panel can write.
 | `--database-url <url>` | derived | overrides the derived RTDB host |
 | `--prod-project <id>` | (`PROD_PROJECT`) | which project is production |
 | `--i-know-this-is-prod` | off | acknowledge a production target |
-| `--audit-dir <dir>` | `.ops-audit` | where pre-images and the log land |
+| `--audit-dir <dir>` | `functions/.ops-audit` | where pre-images and the log land |
 
 ## The production gate fails closed
 
@@ -97,6 +97,12 @@ is production *or* undeclared.
 
 Every destructive route writes to `--audit-dir` (default `functions/.ops-audit/`,
 which is gitignored — **never commit its contents**):
+
+The default is resolved against **this module's own directory**, not your
+working directory, so `node functions/ops/server.js` from the repo root and
+`node ops/server.js` from `functions/` write to the same place. The
+`.gitignore` rule is unanchored (`.ops-audit/`), so a dump is ignored at any
+depth — including one you point `--audit-dir` at somewhere else in the tree.
 
 * `<ts>-<op>-<uid>.json` — the **pre-image**: the current value of every path
   in the plan's write-set, captured and `fsync`ed **before** the destructive
@@ -627,6 +633,20 @@ So every request is checked before it is routed, the page included:
 Anything else gets a `403` and is never routed. (`Origin` cannot be blanket-
 rejected: browsers attach it to every same-origin POST too, so the panel's own
 preview and execute calls carry one.)
+
+A header carrying **no port** means the scheme's default — 80 for `http`, 443
+for `https` — and is compared like any other. `http://127.0.0.1` is a page on
+port 80, not a wildcard, and a panel on `:8787` refuses it.
+
+Every response also carries `X-Frame-Options: DENY` and a
+`Content-Security-Policy`. The page's policy is `default-src 'none'` with three
+exceptions: its one inline script runs under a **per-response nonce** (never
+`'unsafe-inline'`, which would permit an injected `<img onerror=…>` — the thing
+the header exists to stop), inline styles are allowed, and `connect-src 'self'`
+lets the page reach its own `/api/*`. Nothing here stops a click-driven attack,
+because there is none to stop — every destructive route needs a uid you TYPED,
+checked against a preview nonce. It is the backstop for the day a DOM-XSS is
+introduced into `panel.html`, which renders through `innerHTML`.
 
 If you see `refused: Host "…"` in the browser, you reached the panel through a
 hostname rather than through `http://127.0.0.1:<port>` — use the literal

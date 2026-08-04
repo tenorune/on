@@ -36,6 +36,11 @@ import { DROP_MAILBOXES as TRANSIENT_MAILBOXES, UNION_MAILBOXES as DURABLE_MAILB
 // that had already drifted from the shipped one. Both entry points READ
 // telegramUsers/{tgId} before touching it — see telegram-link-write.js for why.
 import { buildLinkWrites, buildMappingTeardown, readMapping } from '../telegram-link-write.js';
+// A uid reaches this module as a KEY in every path below, and `"/"` collapses
+// them all — see ops/uid.js. Asserted here as well as at the panel edge
+// because these builders are independently importable (the CLIs import them
+// directly), so an edge-only check would be one caller away from absent.
+import { assertUid } from './uid.js';
 
 /** @typedef {import('../telegram-link-write.js').ReadDeps} ReadDeps */
 
@@ -59,7 +64,12 @@ import { buildLinkWrites, buildMappingTeardown, readMapping } from '../telegram-
 
 /**
  * `users/{uid}`.
+ *
+ * `presence` is here for one reason: it is the field that says this node is an
+ * ACCOUNT and not merely a populated node (the guards below). Its contents are
+ * read nowhere in this file, so it claims nothing about them.
  * @typedef {{
+ *   presence?: Record<string, unknown>,
  *   followers?: Record<string, unknown>,
  *   groups?: Record<string, unknown>,
  *   invites?: Record<string, InviteRecord>,
@@ -324,9 +334,15 @@ async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId 
  * @returns {Promise<import('./types.js').WritePlan>}
  */
 export async function buildPurgePlan(deps, uid, canvasKeys) {
+  assertUid(uid, 'uid');
   const { own, prefs } = await readOwn(deps, uid);
-  // A typo'd uid must not produce an approvable no-op plan.
-  if (!own) throw new Error(`purge: no account at users/${uid}`);
+  // A typo'd uid must not produce an approvable no-op plan — and the check is
+  // POSITIVE for a reason. Truthiness is satisfied by any populated node,
+  // including one that is not an account: `users//` collapses to the whole
+  // users node (assertUid closes that above), and a residue subtree a peer
+  // wrote under a uid that no longer exists is populated too. Only a
+  // per-account field tells an account from a node that merely contains one.
+  if (!own?.presence) throw new Error(`purge: no account at users/${uid}`);
 
   /** @type {Record<string, unknown>} */
   const extraNulls = {};
@@ -389,8 +405,10 @@ export async function applyPurgePlan(deps, plan) {
  * @returns {Promise<{ verdict: 'safe' | 'lossy', losses: string[], keeps: string[] }>}
  */
 export async function buildLinkImpact(deps, derivedUid, canvasKeys) {
+  assertUid(derivedUid, 'derivedUid');
   const { own, prefs } = await readOwn(deps, derivedUid);
-  if (!own) throw new Error(`link impact: no account at users/${derivedUid}`);
+  // Positive, for the same reason as buildPurgePlan's guard.
+  if (!own?.presence) throw new Error(`link impact: no account at users/${derivedUid}`);
 
   // Linking REPOINTS the mapping rather than deleting it, so no mapping
   // teardown here — and therefore no mapping loss line either.
@@ -414,6 +432,8 @@ export async function buildLinkImpact(deps, derivedUid, canvasKeys) {
  * @returns {Promise<import('./types.js').WritePlan>}
  */
 export async function buildProductionLinkPlan(deps, { derivedUid, phraseUid, now }, canvasKeys) {
+  assertUid(derivedUid, 'derivedUid');
+  assertUid(phraseUid, 'phraseUid');
   // Same uid on both sides would put `userPrefs/{uid}` = null alongside
   // `userPrefs/{uid}/telegram/tgId` — a legal-looking preview that rootUpdate
   // rejects at execute. Refuse at build time.

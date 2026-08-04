@@ -69,6 +69,47 @@ describe('buildExpungeWrites', () => {
       expect(await applyDeps.getVal(path)).toBeNull();
     }
   });
+
+  // Variant A of the codeIndex finding: presence/code is the ACCOUNT's own
+  // field, but codeIndex/{code} is authoritative for who owns that code. An
+  // owner can set their own presence/code to a VICTIM's still-valid code (a
+  // well-formed [A-Z0-9] string the charset rule cannot refuse), then trigger
+  // their own expunge — nulling codeIndex/{victimCode} under the Admin SDK,
+  // where the owner-only delete rule (database.rules.json codeIndex) does not
+  // apply. Free the entry only when it resolves back to the account being
+  // expunged.
+  test('does NOT free a codeIndex entry the account does not own (Variant A)', async () => {
+    const deps = makeStoreDeps({
+      'users/attacker': { presence: { code: 'VICT01' } }, // planted a victim's code
+      'userPrefs/attacker': {},
+      'codeIndex/VICT01': 'victim', // authoritative: the entry belongs to the victim
+    });
+    const writes = await buildExpungeWrites(deps, 'attacker');
+
+    expect(writes['codeIndex/VICT01']).toBeUndefined(); // not in the null-set
+    expect(await deps.getVal('codeIndex/VICT01')).toBe('victim'); // untouched
+    expect(writes['users/attacker']).toBeNull(); // the rest of the expunge is unaffected
+  });
+
+  test('frees a codeIndex entry the account DOES own (regression)', async () => {
+    const deps = makeStoreDeps({
+      'users/dead': { presence: { code: 'DEAD01' } },
+      'userPrefs/dead': {},
+      'codeIndex/DEAD01': 'dead',
+    });
+    const writes = await buildExpungeWrites(deps, 'dead');
+    expect(writes['codeIndex/DEAD01']).toBeNull();
+  });
+
+  test('skips a stale presence/code with no index entry (no-op, not a forged null)', async () => {
+    const deps = makeStoreDeps({
+      'users/dead': { presence: { code: 'GONE01' } },
+      'userPrefs/dead': {},
+      // no codeIndex/GONE01 at all
+    });
+    const writes = await buildExpungeWrites(deps, 'dead');
+    expect(writes['codeIndex/GONE01']).toBeUndefined();
+  });
 });
 
 // The global indexes that point INTO a group deleted wholesale.
