@@ -622,9 +622,10 @@ So run C4 one of two ways, and say which in the results table:
 Either way this is the first time `adoptGroupNames` has driven a **live** merge;
 M8's browser exercise ran against canned responses with no database behind it.
 
-**Follow-up worth filing either way:** the fixture claim and its rationale should
-either gain an `--adopt` mode or have the comment corrected. Left unfiled here —
-that is the operator's call, not this document's.
+**Filed as M13** in `docs/operator-panel-followups.md` (2026-08-04, unruled): the
+fixture claim and its rationale should either gain an `--adopt` mode or have the
+comment corrected. Which one — and whether it is worth doing at all — is the
+operator's call, not this document's.
 
 ### C5. M4 — the audit rethrow on a real filesystem
 
@@ -828,23 +829,31 @@ Recording these so nobody re-derives them as gaps.
 ## Two things found while deriving this page
 
 Both came from reading the code against the docs, not from running anything.
-Neither is filed; both are the operator's call.
+**Both are now filed in `docs/operator-panel-followups.md` as M13 and M14**, with
+their `file:line`, the evidence, and the candidate fixes. Neither is **ruled** —
+that is the operator's call, and filing is not one. Cite the IDs rather than
+re-describing them.
 
-1. **`ops/verify-merge.js` encodes pre-M8 behaviour.** `merge-fixture.js:469`
-   hard-codes "the survivor's record wins" with the rationale "panel.html sends
-   no adoptGroupNames" — true when written, false since M8. There is no `--adopt`
-   flag, so an adopted merge reports `56 of 57` with a false failure. Handled in
-   C4; the fix would be a flag or a corrected comment.
+1. **M13 — `ops/verify-merge.js` encodes pre-M8 behaviour.**
+   `merge-fixture.js:469` hard-codes "the survivor's record wins" with the
+   rationale "panel.html sends no adoptGroupNames" — true when written, false
+   since M8. There is no `--adopt` flag, so an adopted merge reports `56 of 57`
+   with a false failure. Handled in C4; the fix is either a corrected comment or
+   an adoption-aware expectation plus a flag.
 
-2. **The merge fixture seeds `presence/code` values the SEC-1 rule forbids.**
-   `fixtureCodes` builds `SMK{tag}{role}` and the tag is `^[a-z0-9]{1,16}$`, so
-   every seeded code contains lowercase — e.g. `SMKrun1L` — while the rule
-   shipped on 2026-08-04 is `^[A-Z0-9]{1,32}$`. Seeding works because the Admin
-   SDK bypasses rules, and the merge leg is unaffected for the same reason. But
-   the fixture now produces a database state no client could create, so it cannot
-   be used to exercise any rules-validated client write against those accounts.
-   Same pattern as the audit's own lesson, running the other way: a fixture
-   written before a rule describes the world without it.
+2. **M14 — the merge fixture seeds `presence/code` values the SEC-1 rule
+   forbids.** `fixtureCodes` builds `SMK{tag}{role}` and the tag is
+   `^[a-z0-9]{1,16}$`, so every seeded code contains lowercase — e.g. `SMKrun1L`
+   — while the rule shipped on 2026-08-04 is `^[A-Z0-9]{1,32}$`. Seeding works
+   because the Admin SDK bypasses rules, and the merge leg is unaffected for the
+   same reason. But the fixture now produces a database state no client could
+   create, so it cannot be used to exercise any rules-validated client write
+   against those accounts. Same pattern as the audit's own lesson, running the
+   other way: a fixture written before a rule describes the world without it.
+   ⚠️ The one-line fix changes every seeded code **and** every `--clean`
+   derivation (`buildFixtureCleanup` nulls the seed's own write-set, which
+   includes `codeIndex/{code}`), so do not apply it while a fixture is live on
+   dev — clean first, or the old `codeIndex` entries strand.
 
 ## Results
 
