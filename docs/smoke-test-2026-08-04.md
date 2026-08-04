@@ -7,10 +7,12 @@
 - **Part B** — all five run by the operator against the dev project. That is the
   first time G4's cascade block and M8's adopt tick have been seen in a browser
   against live data rather than canned responses.
-- **Parts C, D and E have never been run.** Every destructive check, every
-  client/device check, and the deployed-functions regression are all still owed —
-  including **C1b**, SEC-6's revoke against real Firebase Auth, which its own
-  roadmap marks UNVERIFIED-LIVE.
+- **Part C — C1b PASSES.** SEC-6's revoke has been observed against real
+  Firebase Auth on the **merge** route: `tokensValidAfterTime` advanced across
+  the merge. That is the item its own roadmap entry marked UNVERIFIED-LIVE, and
+  it is the first live sighting. The rest of Part C — C1a, C2, C3, C4, C5, C6 —
+  is unrun.
+- **Parts D and E have never been run at all.**
 
 Nothing is a passing row until the results table at the bottom says so.
 
@@ -48,7 +50,7 @@ live run can tell you that the suite has not already settled.
 | **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest | nothing logically; confirms your build serves it | A2 |
 | **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe | that no shipped caller regressed — a **regression** check, not a positive one | E1 |
 | **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore` | that dumps land there from *your* launch directory | A5 |
-| **SEC-6** | `endSession` on merge + link-as-production | jest + headless Chromium on canned routes | **the revoke itself — explicitly UNVERIFIED-LIVE** | C1, C2 |
+| **SEC-6** | `endSession` on merge + link-as-production | jest + headless Chromium on canned routes; **merge route now OBSERVED LIVE (2026-08-04)** | the revoke on **link-as-production**, still unobserved; and the survivor-unchanged half on merge | C1, C2 |
 | **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium | that a real browser runs the panel under the nonce | A3, B0 |
 | **SEC-8** | docs only — "G3" kept on the merge leg | n/a | nothing to run | — |
 | **G4** | purge preview names predicted cascades | jest | **the block has never been rendered in a browser** | B1, C3 |
@@ -665,6 +667,43 @@ account and are in case C1a, not C1b.
 **Expect:** `tokensValidAfterTime` present and **later** after the merge than
 before it, and the merge otherwise behaving as C1a. Record both timestamps.
 
+⚠️ **Read the SURVIVOR either side too — it is half the claim.** SEC-6 revokes
+the account being **removed** and never the one that survives; the survivor is
+the point of the operation and keeps its session. An advance on the loser alone
+only shows the route revokes *something*. The pass is both rows:
+
+| Account | `tokensValidAfterTime` across the merge |
+|---|---|
+| **loser** (`loserUid`) | **advances** |
+| **survivor** (`survivorUid`) | **unchanged** |
+
+A survivor whose timestamp also moved is a real finding — it would mean the
+route revokes the wrong side, or both.
+
+⚠️ **The merge must be the only revoking operation between the two reads.**
+`tokensValidAfterTime` records the most recent revoke from *any* source: another
+purge, a second panel action, or a run of `ops/verify-auth-delete.js` (which
+revokes as its own step 2) all move it. If anything else ran in between, the
+advance is not attributable to the merge.
+
+**The account here is app-born, not a fixture** — it has to be, or it has no
+Auth record. So unlike the merge-leg rehearsal, **G3 and G6 do have an author on
+this run**: close the loser's clients first, per C0.
+
+**OBSERVED 2026-08-04 — the first live sighting of SEC-6's revoke.**
+uid `d92925e118aa87b925b525e2af33e71c` (32 hex, app-derived, `providerCount: 0`
+— a custom-token account with a real Auth record, so this is C1b and not C1a):
+
+```
+before   tokensValidAfterTime  Mon, 03 Aug 2026 11:17:32 GMT   (1785755852)
+after    tokensValidAfterTime  Tue, 04 Aug 2026 20:37:13 GMT   (1785875833)
+                                                        +119,981 s (~33h20m)
+```
+
+The field advanced across the merge, which is the only observable
+`revokeRefreshTokens` has. **SEC-6 is no longer UNVERIFIED-LIVE on the merge
+route.**
+
 **Verification of the reader itself, 2026-08-04:** run in a session container
 against a deliberately fake service account, it reached `getUser` and reported
 `ERROR app/invalid-credential` through its own catch — so the wiring, the
@@ -675,9 +714,6 @@ An alternative if you would rather not paste a script: `npx firebase auth:export
 carries the same value as `validSince` (epoch seconds). ⚠️ It exports **every
 user's** auth record to a file — write it outside the repo, since no `.gitignore`
 rule covers it and this is exactly the shape SEC-5 was about.
-
-**Expect:** `tokensValidAfterTime` present and **later** after the merge than
-before it, and the merge otherwise behaving as C1a. Record both timestamps.
 
 **What this still does NOT prove:** that the revoke *evicts* anything. It does
 not — that is G3, and it is parked. What you are checking is that the revoke
@@ -1004,7 +1040,7 @@ row, and a row that owes something says so.
 | B3 | SEC-6 footnote on all four previews, right account named | **PASS — OBSERVED 2026-08-04** | |
 | B4 | merge/link preview uid refusal; integrity + canvases | **PASS — OBSERVED 2026-08-04** | closes A4's deferred ordering case on a real project |
 | C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | | |
-| C1b | SEC-6 merge: `tokensValidAfterTime` advances | | **the never-observed one** |
+| C1b | SEC-6 merge: `tokensValidAfterTime` advances | **PASS — OBSERVED 2026-08-04** | uid `d92925e1…e71c`, `providerCount: 0`. `Mon 03 Aug 11:17:32 GMT` → `Tue 04 Aug 20:37:13 GMT` (+119,981 s). **First live sighting of SEC-6's revoke** — it was UNVERIFIED-LIVE in its own roadmap entry. ⚠️ Not recorded: the SURVIVOR's timestamp (must be unchanged — half the claim), and that no other revoking operation ran between the reads. |
 | C2 | SEC-6 link-as-production revokes the derived account only | | |
 | C3 | G4 cascade agrees preview→execute; enumeration entry survives | | |
 | C4 | M8 adopted merge (say which variant was run) | | ⚠️ read C4's warning first |

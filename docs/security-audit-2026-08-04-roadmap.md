@@ -380,11 +380,29 @@ Recorded for context; **no action owed**. Closed on
   the harness was itself falsified by planting the breakage (footnote and alert
   removed), which took it to four failures. Harness uncommitted, in the session
   scratchpad.
-- **Boundary — UNVERIFIED-LIVE.** No session has ever held a service-account
-  credential, so the revoke has never been observed against real Firebase Auth
-  on these two routes. Purge's revoke *was* measured on dev (2026-08-02); these
-  two inherit that measurement by sharing its implementation, which is an
-  inference, not an observation.
+- **Boundary — UNVERIFIED-LIVE when written; the MERGE half is now OBSERVED.**
+  As written (2026-08-04): no session had ever held a service-account
+  credential, so the revoke had never been observed against real Firebase Auth
+  on either route, and both inherited purge's 2026-08-02 measurement by sharing
+  its implementation — an inference, not an observation.
+  **Superseded for merge on 2026-08-04**, by the operator running step C1b of
+  `docs/smoke-test-2026-08-04.md` on the dev project: for an app-born account
+  (`d92925e1…e71c`, `providerCount: 0`, so a custom-token account with a real
+  Auth record), `tokensValidAfterTime` advanced across the merge —
+  `Mon, 03 Aug 2026 11:17:32 GMT` → `Tue, 04 Aug 2026 20:37:13 GMT`. That field
+  is the *only* observable `revokeRefreshTokens` has, so this is the direct
+  sighting the entry said it lacked.
+  **Still UNOBSERVED, and do not read the above as covering them:**
+  (a) **`link/production/execute`** — a different route revoking a different
+  uid (`derivedUid`); it inherits nothing from the merge run, and the two took
+  independent code paths onto `endSession` even though they share it now;
+  (b) the **survivor-unchanged** half of the claim — SEC-6 revokes the account
+  being removed and *never* the one that survives, and the run above read only
+  the loser, so "it revoked the right side" is still an inference;
+  (c) that no other revoking operation ran between the two reads.
+  **What this does NOT show, and never could:** that the revoke *evicts*
+  anything. It does not — an issued ID token stays valid until it expires
+  because the rules never check `auth.token.auth_time`. That is G3/#302, parked.
 
 ## SEC-7 — Ops panel serves no CSP / framing headers — CLOSED
 
