@@ -491,6 +491,8 @@ Recorded for context; **no action owed**. Closed on
   is `docs/operator-panel-followups.md`'s G3 entry. **Do not fold any item above
   into it** — SEC-6 in particular is a *different* mechanism (no revoke at all vs
   an honoured unexpired token), which is why SEC-8 exists.
+  🛑 **G3 also requires the operator's explicit go-ahead before any session
+  works it** — see the standing rule in `docs/HANDOFF.md`'s "What's next".
 
 ## Appendix — pre-existing, outside this diff (not introduced here)
 

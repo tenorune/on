@@ -73,7 +73,7 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **S1** | ~~The manual dev-project smoke test~~ | whole panel | **CLOSED** — all ten steps pass; see below for the two variants it did not cover |
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:221` | **WON'T FIX** (operator, 2026-08-03) — severity corrected DOWN the same day; the `role`-escalation reading was wrong, see below |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
-| **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** — **parked as [#302](https://github.com/tenorune/on/issues/302)** |
+| **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** — **parked as [#302](https://github.com/tenorune/on/issues/302)**. 🛑 **OPERATOR GO-AHEAD REQUIRED — no session starts this on its own** |
 | **G4** | ~~A pre-image cannot undo a cascade the purge only triggered~~ | `ops/purge.js`, `ops/panel.html` | **CLOSED** — the preview now NAMES the cascade before approval; the model is unchanged, see below |
 | **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
 | **G6** | ~~A peer's client republishes cross-user residue, permanently~~ | `database.rules.json` + `js/following.ts` | **CLOSED** (`13cb18c`+`8a0ff62`) — does NOT close with G3; see below |
@@ -136,8 +136,14 @@ planned. M3 was independent and small, and closed the same day (`787f6be`).
 
 **G3** — the whole-app rules gap, parked as
 [#302](https://github.com/tenorune/on/issues/302). Spec-first work that has not
-been started. It is not part of this queue and picking it up is its own
-decision.
+been started. It is not part of this queue.
+
+🛑 **G3 REQUIRES THE OPERATOR'S EXPLICIT GO-AHEAD. No session may start it
+without one — not the spec, not a probe, not an estimate.** "Parked" and
+"not ruled" both mean *undecided by the operator*, and an undecided item is
+closed to sessions until they decide it. Being the only unruled row in this
+table is not permission; it is the reason the rule exists, because an empty
+queue makes G3 look like the obvious next move. It is not. Ask.
 
 ### Also settled, and not items
 
@@ -390,6 +396,13 @@ against them. Only the third is an open item.
   ledger of record and the issue is its tracking half; read this before the
   issue, which summarises it rather than adding to it.
 
+  🛑 **DO NOT WORK THIS WITHOUT THE OPERATOR'S EXPLICIT GO-AHEAD.** Standing
+  rule, no expiry, applies to every session including ones that find nothing
+  else to do. It covers *all* forward motion on G3, not just code: no spec, no
+  branch, no emulator probing, no "just costing it out". Everything below is
+  reference material for a session that has *already been given* the
+  go-ahead — reading it is not the same as having it.
+
   Fell out of closing G2, and it is NOT a panel item: `database.rules.json`
   never checks `auth.token.auth_time`, so an ID token already in the client's
   hands is honoured until it expires no matter what the Admin SDK was told.
@@ -409,8 +422,9 @@ against them. Only the third is an open item.
   **What holds in the meantime:** close the account's clients before purging
   (smoke-test step 9). That is stated wherever the purge is described — README,
   the panel's own confirm dialog, and the smoke test — rather than left as
-  folklore. Anyone picking G3 up should start from the measurement above rather
-  than re-deriving it.
+  folklore. A session that has been *given the go-ahead* should start from the
+  measurement above rather than re-deriving it; a session that has not been
+  given it should not be here at all.
 
   The general lesson is worth more than the item: a deferral is only as good as
   the reading it rests on, and this one had never been in front of live data.
