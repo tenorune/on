@@ -50,7 +50,7 @@ live run can tell you that the suite has not already settled.
 | **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest | nothing logically; confirms your build serves it | A2 |
 | **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe | that no shipped caller regressed — a **regression** check, not a positive one | E1 |
 | **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore` | that dumps land there from *your* launch directory | A5 |
-| **SEC-6** | `endSession` on merge + link-as-production | jest + headless Chromium on canned routes; **merge route now OBSERVED LIVE (2026-08-04)** | the revoke on **link-as-production**, still unobserved; and the survivor-unchanged half on merge | C1, C2 |
+| **SEC-6** | `endSession` on merge + link-as-production | jest + headless Chromium on canned routes; **merge route OBSERVED LIVE, both sides (2026-08-04)** | only the revoke on **link-as-production**, still unobserved | C1, C2 |
 | **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium | that a real browser runs the panel under the nonce | A3, B0 |
 | **SEC-8** | docs only — "G3" kept on the merge leg | n/a | nothing to run | — |
 | **G4** | purge preview names predicted cascades | jest | **the block has never been rendered in a browser** | B1, C3 |
@@ -701,8 +701,18 @@ after    tokensValidAfterTime  Tue, 04 Aug 2026 20:37:13 GMT   (1785875833)
 ```
 
 The field advanced across the merge, which is the only observable
-`revokeRefreshTokens` has. **SEC-6 is no longer UNVERIFIED-LIVE on the merge
-route.**
+`revokeRefreshTokens` has.
+
+**The survivor was read after the merge and its `tokensValidAfterTime` PREDATES
+the merge**, so it was never revoked. ⚠️ Note this needed only ONE read, and the
+reasoning is worth reusing: a revoke can only move the field *forward*, to at
+least the instant it happened. So a single post-merge read that is **older than
+the merge** already proves no revoke occurred — a "before" reading adds nothing
+on the survivor side. (The exact survivor value was not recorded; only that it
+predates `Tue, 04 Aug 2026 20:37:13 GMT`.)
+
+**Both rows of the pass condition are therefore met — loser advances, survivor
+unchanged — and SEC-6 is no longer UNVERIFIED-LIVE on the merge route.**
 
 **Verification of the reader itself, 2026-08-04:** run in a session container
 against a deliberately fake service account, it reached `getUser` and reported
@@ -1040,7 +1050,7 @@ row, and a row that owes something says so.
 | B3 | SEC-6 footnote on all four previews, right account named | **PASS — OBSERVED 2026-08-04** | |
 | B4 | merge/link preview uid refusal; integrity + canvases | **PASS — OBSERVED 2026-08-04** | closes A4's deferred ordering case on a real project |
 | C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | | |
-| C1b | SEC-6 merge: `tokensValidAfterTime` advances | **PASS — OBSERVED 2026-08-04** | uid `d92925e1…e71c`, `providerCount: 0`. `Mon 03 Aug 11:17:32 GMT` → `Tue 04 Aug 20:37:13 GMT` (+119,981 s). **First live sighting of SEC-6's revoke** — it was UNVERIFIED-LIVE in its own roadmap entry. ⚠️ Not recorded: the SURVIVOR's timestamp (must be unchanged — half the claim), and that no other revoking operation ran between the reads. |
+| C1b | SEC-6 merge: `tokensValidAfterTime` advances | **PASS — OBSERVED 2026-08-04, both rows** | **Loser** `d92925e1…e71c` (`providerCount: 0`): `Mon 03 Aug 11:17:32 GMT` → `Tue 04 Aug 20:37:13 GMT`, +119,981 s. **Survivor**: read post-merge, timestamp predates the merge → never revoked (one read suffices; a revoke only moves the field forward). **First live sighting of SEC-6's revoke**, which was UNVERIFIED-LIVE in its own roadmap entry. ⚠️ Residual assumption: that no other revoking operation ran between the loser's two reads. |
 | C2 | SEC-6 link-as-production revokes the derived account only | | |
 | C3 | G4 cascade agrees preview→execute; enumeration entry survives | | |
 | C4 | M8 adopted merge (say which variant was run) | | ⚠️ read C4's warning first |

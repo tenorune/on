@@ -396,10 +396,12 @@ Recorded for context; **no action owed**. Closed on
   (a) **`link/production/execute`** — a different route revoking a different
   uid (`derivedUid`); it inherits nothing from the merge run, and the two took
   independent code paths onto `endSession` even though they share it now;
-  (b) the **survivor-unchanged** half of the claim — SEC-6 revokes the account
-  being removed and *never* the one that survives, and the run above read only
-  the loser, so "it revoked the right side" is still an inference;
-  (c) that no other revoking operation ran between the two reads.
+  (b) that no other revoking operation ran between the loser's two reads.
+  **The survivor-unchanged half IS now observed** (same run): the survivor was
+  read after the merge and its `tokensValidAfterTime` predates the merge, so it
+  was never revoked. One read settles that side — a revoke can only move the
+  field forward to at least the instant it happened, so a post-merge value
+  *older* than the merge is already proof of absence.
   **What this does NOT show, and never could:** that the revoke *evicts*
   anything. It does not — an issued ID token stays valid until it expires
   because the rules never check `auth.token.auth_time`. That is G3/#302, parked.
