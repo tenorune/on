@@ -30,9 +30,10 @@ marked **UNVERIFIED-LIVE** below.
 
 ## What is left (2026-08-04)
 
-**Nothing.** All eight are CLOSED. Six are merged to `dev` (`545dadf`); SEC-6
-and SEC-8 are built and verified on `claude/sec-6-sec-8-audit-l8b66s` and are
-**not merged yet** — the maintainer merges.
+**Nothing.** All eight are CLOSED and merged to `dev` — six at `545dadf`, then
+SEC-6 and SEC-8 at `06a4136` (branch `claude/sec-6-sec-8-audit-l8b66s`, kept,
+merged on the maintainer's explicit instruction; the standing convention is
+still that they merge, not the agent).
 
 The entries stay below because the *reasoning* is the reusable part — and
 because **four of the eight shipped differently from what this document
