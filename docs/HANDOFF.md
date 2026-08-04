@@ -67,11 +67,35 @@ departure and its evidence is recorded in that item's entry.
   no ignore rule covers. `git check-ignore` tests it directly — the roadmap's
   "N/A (config)" was wrong.
 
-Open: **SEC-6 + SEC-8**, and nothing else from the audit — the revoke-parity gap
-and the doc-ID correction, which the roadmap sequences as one piece of work.
-Both are `ops/**` + docs and ride no deploy. G3/#302 stays parked and out of
-scope: do **not** fold SEC-6 into it, they are different mechanisms (no revoke
-at all vs an honoured unexpired token), which is the whole reason SEC-8 exists.
+- **SEC-6 + SEC-8** — the last two, done together as the roadmap sequenced them
+  and **not merged yet** (branch `claude/sec-6-sec-8-audit-l8b66s`).
+  `merge/execute` and `link/production/execute` destroyed an account without
+  revoking its session; purge had done so since 2026-08-02. All three now share
+  ONE `endSession` in `ops/server.js`, revoking the uid being **removed** (the
+  merge loser, the link's derived account) and never the survivor. The G8
+  `auth/user-not-found` allowlist carries over and is load-bearing here: every
+  `seed-merge-fixture.js` account is RTDB-only, so an unguarded revoke would
+  refuse the whole documented merge rehearsal. Confirmed absent before it was
+  added — the eleven new cases failed with `revokeRefreshTokens` called zero
+  times and the destructive write resolving `ok`. Hardening, not a security
+  finding: the only actor is the authorized operator, and the uid is
+  re-derivable either way, so this stops an already-open client and nothing
+  more.
+- **SEC-8 shipped the OPPOSITE of what the roadmap prescribed** — the fourth of
+  its prescriptions to be wrong, after SEC-4, SEC-5 and SEC-7. It called "G3"
+  the wrong ID for the merge-leg client hazard and said to rename it to SEC-6.
+  But sequenced behind SEC-6 — as the roadmap itself required — the rename
+  inverts: once merge and the production link revoke, their residual hazard IS
+  G3, the same bounded token window purge carries. So **G3 stays** in
+  `ops/README.md` and here, with a sentence recording that it became accurate
+  only at SEC-6, and that before it the window was unbounded rather than an
+  hour.
+
+**G3/#302 was NOT worked on and stays parked.** Nothing in this branch touches
+`database.rules.json`; the `auth.token.auth_time` gap is untouched. Do not read
+"the merge leg is now under G3" as folding SEC-6 into #302 — SEC-6 was the
+absence of a revoke, #302 is an issued token outliving one, and closing the
+first is what made the second the correct name for what remains.
 
 **THE BUILD QUEUE IS DONE AND MERGED. NOTHING IS IN FLIGHT.** All six items
 ruled on 2026-08-03 — G4, M12, M5, M4, M3, M8 — are built, verified and merged
@@ -226,7 +250,14 @@ shape each.
 **If you run the panel again, the preconditions still stand.** Close the Mini App
 and any signed-in web client for the target account first (**G3**) — it is not
 theoretical, it fired on 2026-08-02 and reappeared as a conflict at
-`userPrefs/{uid}` on the way back out. And closing the target's clients is not
+`userPrefs/{uid}` on the way back out. **G3 is the accurate name for this on
+the merge and link legs only since SEC-6** (`792b109`): before it, those two
+routes revoked nothing, so the hazard there was not G3's bounded one-hour token
+window but an unbounded one. Both now revoke the account they remove, as purge
+has since 2026-08-02, which is what puts every leg under the same G3 window.
+G3/#302 itself was **not** worked on and stays parked — it is the rules gap
+that lets an issued token outlive its revoke, and no revoke closes it. And
+closing the target's clients is not
 sufficient (**G6**): a PEER's client republishes cross-user residue permanently.
 **G6 now has a real fix** (`13cb18c`+`8a0ff62` — a rules `.validate` plus a
 client gate). The rules half is **live on the dev project** — the merge to
