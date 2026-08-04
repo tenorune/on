@@ -34,11 +34,11 @@ marked **UNVERIFIED-LIVE** below.
 |----|------|-------|----------|-----------|--------|
 | SEC-1 | `presence/code` → `codeIndex` charset + ownership | Security | Critical (A) / High (B) | 8 | **CLOSED** |
 | SEC-2 | `uid:"/"` collapses purge/merge paths, defeats the "typo'd uid" guard | Robustness / data-safety | High (robustness); **not** a security finding | 9 (mechanism) | **CLOSED** |
-| SEC-3 | Ops `Origin` guard does not enforce the port | Security (defense-in-depth) | Medium | 10 (defect) / 3 (exploit) | Open |
+| SEC-3 | Ops `Origin` guard does not enforce the port | Security (defense-in-depth) | Medium | 10 (defect) / 3 (exploit) | **CLOSED** |
 | SEC-4 | `rootUpdate` overlap check disagrees with the SDK on collapsed paths | Security (defense-in-depth) | Medium | 8 | Open |
 | SEC-5 | `.ops-audit/` git-ignore rule is path-anchored | Data exposure (repo) | Low | 7 | Open |
 | SEC-6 | `merge` / `link-as-production` execute without revoking the session | Hardening / parity | Low; **not** a security finding | 8 | Open |
-| SEC-7 | Ops panel serves no CSP / framing headers | Security (defense-in-depth) | Low | 6 | Open |
+| SEC-7 | Ops panel serves no CSP / framing headers | Security (defense-in-depth) | Low | 6 | **CLOSED** |
 | SEC-8 | Docs label the merge-leg client hazard "G3" (wrong ID) | Docs hygiene | Trivial | 9 | Open |
 | — | G3 / [#302](https://github.com/tenorune/on/issues/302): revoked-session write window | Security | — | — | **Parked** (out of scope) |
 
@@ -161,7 +161,7 @@ Recorded for context; **no action owed**. Closed on
   red. Rules 119/119, typechecks clean (zero new suppressions), web 2149/2149
   unchanged (no `js/` change).
 
-## SEC-3 — Ops `Origin` guard does not enforce the port
+## SEC-3 — Ops `Origin` guard does not enforce the port — CLOSED
 
 - **Class: security (defense-in-depth).** Code defect certain (confidence 10);
   practical exploitability low (confidence 3) — the destructive chain dies at the
@@ -191,6 +191,22 @@ Recorded for context; **no action owed**. Closed on
   and `origin: 'http://localhost'` → refused. That gap is why this survived
   review round 1.
 - **Deploy surface.** `ops/**` — **no deploy**.
+- **Fix shipped, as planned above.** `isLoopbackAuthority` takes a
+  `defaultPort` and always compares: `const port = parsed.port === null ?
+  defaultPort : parsed.port`. `originRefusal` passes 80 for `Host`
+  (`createHttpServer` speaks plain http and binds loopback — there is no TLS,
+  so a port-less Host can only mean 80) and, for `Origin`, threads the captured
+  scheme: `https` → 443, `http` → 80.
+- **README.** No correction was owed after all: the file already said "on that
+  same port", so the mismatch was code-vs-docs with the *docs* in the right.
+  The `ops/README.md` edit in this change **adds** the rule that a port-less
+  header means the scheme's default rather than any port, and documents SEC-7's
+  headers.
+- **Verification.** Three new cases, each confirmed RED before the fix:
+  port-less `Host`/`Origin` on a `:8787` panel now refused; `https://127.0.0.1`
+  resolves to 443 (refused on a port-80 panel, accepted on a 443 one); and — the
+  property the fix must NOT break — a panel genuinely listening on 80 still
+  accepts the port-less header, which was green before and after by design.
 
 ## SEC-4 — `rootUpdate` overlap check disagrees with the SDK on collapsed paths
 
@@ -261,7 +277,7 @@ Recorded for context; **no action owed**. Closed on
   anything but `auth/user-not-found`.
 - **Deploy surface.** `ops/**` + docs — **no deploy**.
 
-## SEC-7 — Ops panel serves no CSP / framing headers
+## SEC-7 — Ops panel serves no CSP / framing headers — CLOSED
 
 - **Class: security (defense-in-depth). Low, confidence 6.**
 - **Where.** `server.js`'s response writer sets `Content-Type` only; the panel
@@ -277,6 +293,34 @@ Recorded for context; **no action owed**. Closed on
   'unsafe-inline'` (or hashed) and `X-Frame-Options: DENY` to the panel HTML
   response in `server.js`. Cheap; do it alongside SEC-3.
 - **Deploy surface.** `ops/**` — **no deploy**.
+- **Fix shipped — and the header above is NOT the one that shipped.** Sent
+  verbatim it would have served a blank panel: `default-src 'none'` blocks the
+  page's own `fetch('/api/*')`, and the file's one inline `<script>` needs a
+  source of its own. Two deliberate departures:
+  - `connect-src 'self'` — without it the CSP does not harden the panel, it
+    disables it.
+  - `script-src 'nonce-<per-response uuid>'`, **not** `'unsafe-inline'`. The
+    DOM-XSS this backstops arrives through `innerHTML`, where the executable
+    form is an inline event handler (`<img onerror=…>`) — precisely what
+    `'unsafe-inline'` permits. A nonce refuses it. `panel.html` carries
+    `nonce="__CSP_NONCE__"` (exported as `CSP_NONCE_PLACEHOLDER`), substituted
+    per response.
+  `style-src 'unsafe-inline'` was kept as suggested (a style injection cannot
+  reach the API), plus `base-uri`/`form-action`/`frame-ancestors 'none'`.
+  `X-Frame-Options: DENY` and the bare `default-src 'none'` policy go on
+  **every** response, not just the page, so no future route can forget them.
+- **Verification.** Six new cases (framing, the default-deny + the three
+  exceptions, nonce-not-unsafe-inline with the header and the page body pinned
+  to each other, per-response freshness, API responses, and a source assertion
+  that `panel.html` still carries the placeholder on its one script tag), all
+  RED before the fix. Unit tests cannot tell a hardened panel from a broken
+  one, so the **real** `panel.html` was also driven through the **real**
+  `createHttpServer` in headless Chromium against canned routes: inline script
+  executed under the nonce, `/api/snapshot` fetched, row rendered, zero console
+  or CSP-violation output. That harness was then itself checked by planting a
+  CSP with `connect-src` removed — it correctly went to 0 rows with two CSP
+  violations logged, so a green run means something. (Harness is uncommitted,
+  in the session scratchpad, per the repo's precedent for browser smokes.)
 
 ## SEC-8 — Docs label the merge-leg client hazard "G3" (wrong ID)
 
@@ -323,8 +367,8 @@ affect the correctness of a destructive write?).
 2. ~~**SEC-2**~~ — **DONE** (`requireUid` + the builder asserts + the positive
    guards, bundled as one change, as planned). It did not close SEC-4; item 1
    still stands on its own.
-3. **SEC-3 + SEC-7** together — both are `server.js` header/guard changes,
-   defense-in-depth, no deploy.
+3. ~~**SEC-3 + SEC-7**~~ — **DONE**, together as planned (both `server.js`).
+   Note SEC-7 did not ship the header this doc suggested; see its entry.
 4. **SEC-5** — one-line `.gitignore` change; do it now, it is free.
 5. **SEC-6 + SEC-8** together — the parity revoke and the doc-ID correction are
    the same piece of work.

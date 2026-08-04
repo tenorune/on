@@ -19,7 +19,7 @@ ownership gap — and itemized everything else, forward-first, in
 **`docs/security-audit-2026-08-04-roadmap.md`**. That doc is the source of
 truth for SEC-3…SEC-8, not this section.
 
-**Two of the eight are now CLOSED, both on the working branch
+**Four of the eight are now CLOSED, all on the working branch
 `claude/sec-2-revoked-sessions-l99r3u` and NOT merged — the maintainer's call.**
 (That branch carries the SEC-1 work verbatim; it and
 `claude/knockknock-revoked-sessions-im20og` share the tip `b546e40` the SEC-2
@@ -32,11 +32,21 @@ commit builds on.)
   positive (`own.presence`). One behaviour change is recorded in the roadmap's
   SEC-2 entry: a real-but-presence-less `users/{uid}` residue node is no longer
   purgeable.
+- **SEC-3** — the ops `Origin`/`Host` guard skipped the port comparison whenever
+  the header carried none, so `http://127.0.0.1` (port 80) passed on a panel
+  listening on `:8787`. An absent port now resolves to the scheme's default and
+  is compared like any other.
+- **SEC-7** — the panel serves `X-Frame-Options: DENY` and a CSP on every
+  response. **The header this repo's roadmap suggested would have served a
+  blank panel** — read SEC-7's entry before touching it: `connect-src 'self'`
+  and a per-response script nonce (`CSP_NONCE_PLACEHOLDER` in `panel.html`) are
+  load-bearing, and the page was verified in headless Chromium, not only by
+  unit tests.
 
-Next is **SEC-4**, per the roadmap's suggested sequencing, and it is the one
-that needs care: **SEC-4 is the only remaining item on a deployed surface**
-(`functions/telegram-shared.js`). SEC-3/5/6/7/8 are `ops/**`, `.gitignore`, or
-docs and ride no deploy. SEC-2 did **not** subsume SEC-4 — it closed the plant
+Open: **SEC-4**, SEC-5, SEC-6, SEC-8. Next is **SEC-4**, per the roadmap's
+suggested sequencing, and it is the one that needs care: **SEC-4 is the only
+remaining item on a deployed surface** (`functions/telegram-shared.js`). SEC-5
+(`.gitignore`), SEC-6 (`ops/**` + docs) and SEC-8 (docs) ride no deploy. SEC-2 did **not** subsume SEC-4 — it closed the plant
 at this panel's entry layers; `rootUpdate` still disagrees with the SDK about
 what path a collapsed key names. G3/#302 stays parked and out of scope — do
 **not** fold SEC-6 into it (they are different mechanisms; see the roadmap's

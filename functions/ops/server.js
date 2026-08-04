@@ -67,6 +67,13 @@ export const BIND_ADDRESS = '127.0.0.1';
  */
 export const ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
 
+/**
+ * The token panel.html carries on its inline `<script>`, replaced with a fresh
+ * per-response nonce when the page is served. Exported so the page, the header
+ * and the test that pins them together all name the same string.
+ */
+export const CSP_NONCE_PLACEHOLDER = '__CSP_NONCE__';
+
 /** @typedef {ReturnType<typeof makeOpsDeps>} OpsWiring */
 /** @typedef {OpsWiring['deps']} OpsDeps */
 /** @typedef {OpsWiring['io']} OpsIo */
@@ -261,16 +268,26 @@ function splitAuthority(authority) {
 
 /**
  * Is this authority one of ours? The port must match the socket we are
- * actually listening on when the header carries one.
+ * actually listening on.
+ *
+ * An ABSENT port is not a wildcard — it is the scheme's default, and omitting
+ * it is exactly how a browser serialises an origin on 80/443. Treating "no
+ * port" as "any port" accepted a page on `http://127.0.0.1` as this panel
+ * while correctly refusing `http://127.0.0.1:3000`, which is the opposite of
+ * what the README promises.
+ *
  * @param {string | undefined} authority
  * @param {number | null | undefined} localPort
+ * @param {number} defaultPort the port the scheme implies when the header
+ *   carries none — 80 for http, 443 for https
  */
-function isLoopbackAuthority(authority, localPort) {
+function isLoopbackAuthority(authority, localPort, defaultPort) {
   if (typeof authority !== 'string' || authority === '') return false;
   const parsed = splitAuthority(authority);
   if (parsed === null) return false;
   if (!ALLOWED_HOSTS.includes(parsed.name)) return false;
-  if (parsed.port !== null && localPort != null && parsed.port !== localPort) return false;
+  const port = parsed.port === null ? defaultPort : parsed.port;
+  if (localPort != null && port !== localPort) return false;
   return true;
 }
 
@@ -297,15 +314,19 @@ function isLoopbackAuthority(authority, localPort) {
 export function originRefusal(req) {
   const localPort = req.socket?.localPort ?? null;
   const host = req.headers.host;
-  if (!isLoopbackAuthority(host, localPort)) {
+  // createHttpServer speaks plain http and binds loopback only — there is no
+  // TLS here — so a Host carrying no port can only mean http's default, 80.
+  if (!isLoopbackAuthority(host, localPort, 80)) {
     return `refused: Host "${String(host)}" is not this server's loopback address — `
       + 'this panel answers only to 127.0.0.1 / localhost on its own port (DNS-rebinding guard)';
   }
   const origin = req.headers.origin;
   if (origin !== undefined) {
     // "null" (a sandboxed or file: document) is not a loopback origin either.
-    const parsed = /^https?:\/\/(.+)$/.exec(origin);
-    if (parsed === null || !isLoopbackAuthority(parsed[1], localPort)) {
+    // The scheme is captured because it decides which default port an origin
+    // without one means: `https://127.0.0.1` is 443, not 80.
+    const parsed = /^(https?):\/\/(.+)$/.exec(origin);
+    if (parsed === null || !isLoopbackAuthority(parsed[2], localPort, parsed[1] === 'https' ? 443 : 80)) {
       return `refused: cross-origin request from "${origin}"`;
     }
   }
@@ -809,6 +830,42 @@ export function createRoutes(ctx) {
 // --- HTTP ------------------------------------------------------------------
 
 /**
+ * On EVERY response, page or API, refusal or success.
+ *
+ * This is a backstop and nothing more: there is no click-only destructive path
+ * to protect: every destructive route needs a uid the operator TYPED, checked
+ * server-side against a preview nonce, and a framed page can neither read that
+ * uid nor type it. What these buy is the day after a DOM-XSS is introduced
+ * into panel.html — which renders rows, details and previews through
+ * innerHTML — in a process that holds a database-admin credential.
+ *
+ * `default-src 'none'` is the whole policy for an API response: JSON loads
+ * nothing. The page needs three exceptions and gets them below, per response.
+ */
+const BASE_SECURITY_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+};
+
+/**
+ * The page's policy. The inline script is allowed by NONCE rather than by
+ * 'unsafe-inline', which would permit the very thing the header is here to
+ * stop — an injected `<img onerror=…>` is an inline script. Styles keep
+ * 'unsafe-inline' (a style injection cannot reach the API), and `connect-src`
+ * has to name 'self' or the panel's own fetch calls die with it.
+ * @param {string} nonce
+ */
+const pageCsp = (nonce) => [
+  "default-src 'none'",
+  `script-src 'nonce-${nonce}'`,
+  "style-src 'unsafe-inline'",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+/**
  * @param {{ routes: Record<string, RouteHandler>, page: string }} ctx
  * @returns {import('node:http').Server}
  */
@@ -816,8 +873,14 @@ export function createHttpServer({ routes, page }) {
   return createServer((req, res) => {
     const url = new URL(req.url || '/', `http://${BIND_ADDRESS}`);
     const key = `${req.method} ${url.pathname}`;
-    /** @param {number} code @param {string} type @param {string} body */
-    const send = (code, type, body) => { res.writeHead(code, { 'Content-Type': type }); res.end(body); };
+    /**
+     * @param {number} code @param {string} type @param {string} body
+     * @param {Record<string, string>} [headers] overrides, for the page's CSP
+     */
+    const send = (code, type, body, headers) => {
+      res.writeHead(code, { 'Content-Type': type, ...BASE_SECURITY_HEADERS, ...headers });
+      res.end(body);
+    };
 
     // Before ANY routing, including the page: this server has no auth and holds
     // a database-admin credential, so a request that did not come from the
@@ -825,7 +888,13 @@ export function createHttpServer({ routes, page }) {
     const refusal = originRefusal(req);
     if (refusal !== null) return send(403, 'text/plain', refusal);
 
-    if (key === 'GET /') return send(200, 'text/html; charset=utf-8', page);
+    if (key === 'GET /') {
+      // Fresh per response: a nonce an attacker can predict is not a nonce.
+      const nonce = randomUUID();
+      return send(200, 'text/html; charset=utf-8', page.replaceAll(CSP_NONCE_PLACEHOLDER, nonce), {
+        'Content-Security-Policy': pageCsp(nonce),
+      });
+    }
     const handler = routes[key];
     if (!handler) return send(404, 'text/plain', 'not found');
 

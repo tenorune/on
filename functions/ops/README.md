@@ -628,6 +628,20 @@ Anything else gets a `403` and is never routed. (`Origin` cannot be blanket-
 rejected: browsers attach it to every same-origin POST too, so the panel's own
 preview and execute calls carry one.)
 
+A header carrying **no port** means the scheme's default — 80 for `http`, 443
+for `https` — and is compared like any other. `http://127.0.0.1` is a page on
+port 80, not a wildcard, and a panel on `:8787` refuses it.
+
+Every response also carries `X-Frame-Options: DENY` and a
+`Content-Security-Policy`. The page's policy is `default-src 'none'` with three
+exceptions: its one inline script runs under a **per-response nonce** (never
+`'unsafe-inline'`, which would permit an injected `<img onerror=…>` — the thing
+the header exists to stop), inline styles are allowed, and `connect-src 'self'`
+lets the page reach its own `/api/*`. Nothing here stops a click-driven attack,
+because there is none to stop — every destructive route needs a uid you TYPED,
+checked against a preview nonce. It is the backstop for the day a DOM-XSS is
+introduced into `panel.html`, which renders through `innerHTML`.
+
 If you see `refused: Host "…"` in the browser, you reached the panel through a
 hostname rather than through `http://127.0.0.1:<port>` — use the literal
 address.

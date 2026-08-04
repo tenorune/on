@@ -15,6 +15,7 @@ import {
   originRefusal,
   BIND_ADDRESS,
   ALLOWED_HOSTS,
+  CSP_NONCE_PLACEHOLDER,
 } from '../ops/server.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -1237,6 +1238,36 @@ describe('originRefusal', () => {
     expect(originRefusal(req({ host: '127.0.0.1:9999' }))).toMatch(/Host/);
   });
 
+  // SEC-3. A browser OMITS the default port when it serialises an origin, so a
+  // page on `http://127.0.0.1` (port 80) sends `Origin: http://127.0.0.1` — and
+  // a guard that skipped the comparison whenever the header carried no port
+  // accepted it on a panel listening on 8787, while correctly refusing
+  // `:3000`. An absent port is a port — the scheme's default — not a wildcard.
+  // This is the case that made the README's "on that same port" untrue.
+  test('refuses a Host or Origin whose ABSENT port is not this port', () => {
+    expect(originRefusal(req({ host: '127.0.0.1' }))).toMatch(/Host/);
+    expect(originRefusal(req({ host: 'localhost' }))).toMatch(/Host/);
+    expect(originRefusal(req({ host: '[::1]' }))).toMatch(/Host/);
+    expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'http://127.0.0.1' }))).toMatch(/cross-origin/);
+    expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'http://localhost' }))).toMatch(/cross-origin/);
+  });
+
+  // The scheme decides which default, so an https origin resolves to 443 and
+  // not to http's 80 — otherwise `https://127.0.0.1` would be accepted by a
+  // panel on port 80.
+  test('an https origin defaults to 443, not to 80', () => {
+    expect(originRefusal(req({ host: '127.0.0.1:80', origin: 'https://127.0.0.1' }, 80))).toMatch(/cross-origin/);
+    expect(originRefusal(req({ host: '127.0.0.1:443', origin: 'https://127.0.0.1' }, 443))).toBeNull();
+  });
+
+  // The other half of the same rule: on a panel that really is listening on
+  // the scheme's default port, the port-less header IS this port and must
+  // still be accepted. A blanket "no port, no entry" would be a different bug.
+  test('a panel listening on 80 accepts the port-less loopback header', () => {
+    expect(originRefusal(req({ host: '127.0.0.1', origin: 'http://127.0.0.1' }, 80))).toBeNull();
+    expect(originRefusal(req({ host: 'localhost', origin: 'http://localhost' }, 80))).toBeNull();
+  });
+
   test('refuses a cross-origin caller', () => {
     expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'https://evil.example.com' }))).toMatch(/cross-origin/);
     expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'null' }))).toMatch(/cross-origin/);
@@ -1341,5 +1372,97 @@ describe('the HTTP server', () => {
     } finally {
       await new Promise((resolve) => { server.close(() => resolve(undefined)); });
     }
+  });
+});
+
+// --- SEC-7: the page's last line of defence --------------------------------
+//
+// Nothing here stops a click-driven attack, because there is none to stop:
+// every destructive route needs a uid TYPED by the operator and checked
+// server-side against a preview nonce, and a cross-origin frame can neither
+// read that uid nor type it. These headers exist for the day a DOM-XSS is
+// introduced into panel.html — which renders rows, details and previews with
+// innerHTML — when a CSP is the only thing standing between an injected
+// `<img onerror>` and a process holding a database-admin credential.
+describe('the panel page is served with a CSP and cannot be framed', () => {
+  const PAGE = `<style>b{color:red}</style><script nonce="${CSP_NONCE_PLACEHOLDER}">1</script>`;
+
+  /** Serve a page over a real socket and hand the base URL to `fn`. */
+  async function served(fn, page = PAGE) {
+    const { routes } = harness();
+    const server = createHttpServer({ routes, page });
+    await new Promise((resolve) => { server.listen(0, BIND_ADDRESS, () => resolve(undefined)); });
+    try {
+      await fn(`http://127.0.0.1:${server.address().port}`);
+    } finally {
+      await new Promise((resolve) => { server.close(() => resolve(undefined)); });
+    }
+  }
+
+  /** The CSP as {directive: value}, so a test names the rule it depends on. */
+  const directives = (res) => Object.fromEntries(
+    (res.headers.get('content-security-policy') || '')
+      .split(';').map((d) => d.trim()).filter(Boolean)
+      .map((d) => [d.split(/\s+/)[0], d.split(/\s+/).slice(1).join(' ')]),
+  );
+
+  test('the page cannot be framed, and says so in both dialects', async () => {
+    await served(async (base) => {
+      const res = await fetch(`${base}/`);
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+      expect(directives(res)['frame-ancestors']).toBe("'none'");
+    });
+  });
+
+  test('nothing loads by default, and the page can still reach its own API', async () => {
+    await served(async (base) => {
+      const d = directives(await fetch(`${base}/`));
+      expect(d['default-src']).toBe("'none'");
+      // The panel is one file that fetches /api/*. Without this directive the
+      // CSP would not harden the page, it would break it.
+      expect(d['connect-src']).toBe("'self'");
+      expect(d['style-src']).toBe("'unsafe-inline'");
+      expect(d['base-uri']).toBe("'none'");
+      expect(d['form-action']).toBe("'none'");
+    });
+  });
+
+  // 'unsafe-inline' would make this header decorative: the DOM-XSS vector
+  // through innerHTML is an inline event handler (`<img onerror>`), and
+  // 'unsafe-inline' permits exactly that. A nonce does not.
+  test('the inline script runs by NONCE, never by unsafe-inline', async () => {
+    await served(async (base) => {
+      const res = await fetch(`${base}/`);
+      const script = directives(res)['script-src'];
+      expect(script).not.toContain('unsafe-inline');
+      const nonce = /^'nonce-([A-Za-z0-9+/=_-]+)'$/.exec(script)?.[1];
+      expect(nonce).toBeTruthy();
+      // The header and the page must agree, or the panel is simply dead.
+      expect(await res.text()).toContain(`nonce="${nonce}"`);
+    });
+  });
+
+  test('the nonce is per-response, not per-process', async () => {
+    await served(async (base) => {
+      const [a, b] = await Promise.all([fetch(`${base}/`), fetch(`${base}/`)]);
+      expect(directives(a)['script-src']).not.toBe(directives(b)['script-src']);
+    });
+  });
+
+  test('an API response is locked down too', async () => {
+    await served(async (base) => {
+      const res = await fetch(`${base}/api/snapshot`);
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+      expect(directives(res)['default-src']).toBe("'none'");
+    });
+  });
+
+  // The substitution is a string match. If panel.html stops carrying the
+  // placeholder, the header names a nonce no tag has and the panel loads blank
+  // with nothing but a console violation to explain it.
+  test('panel.html carries the nonce placeholder on its one inline script', () => {
+    const html = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
+    expect(html.match(/<script/g)).toHaveLength(1);
+    expect(html).toContain(`<script nonce="${CSP_NONCE_PLACEHOLDER}">`);
   });
 });
