@@ -28,6 +28,14 @@ container has ever held a service-account credential**, so nothing ran against a
 live Firebase project. Where a conclusion depends on live backend behaviour it is
 marked **UNVERIFIED-LIVE** below.
 
+## What is left (2026-08-04)
+
+**SEC-6 + SEC-8 only.** The other six are CLOSED and merged to `dev`; their
+entries stay below because the *reasoning* is the reusable part — and because
+three of them shipped **differently from what this document prescribed**
+(SEC-4, SEC-5, SEC-7 — each says so in its own entry). Read those before
+trusting the prescriptions in SEC-6 or SEC-8.
+
 ## At a glance
 
 | ID | Item | Class | Severity | Confidence | Status |

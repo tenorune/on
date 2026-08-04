@@ -19,11 +19,19 @@ produced one real security finding — **SEC-1**, the `presence/code` →
 forward-first, in **`docs/security-audit-2026-08-04-roadmap.md`**. That doc is
 the source of truth for what remains, not this section.
 
-**Six of the eight are now CLOSED, all on the working branch
-`claude/sec-2-revoked-sessions-l99r3u` and NOT merged — the maintainer's call.**
-(That branch carries the SEC-1 work verbatim; it and
-`claude/knockknock-revoked-sessions-im20og` share the tip `b546e40` the SEC-2
-commit builds on.)
+**Six of the eight are CLOSED and MERGED TO `dev`** (2026-08-04, at the
+maintainer's explicit instruction — the standing convention is still that they
+merge, not the agent). The branch was `claude/sec-2-revoked-sessions-l99r3u`;
+it is kept, not deleted. **That merge deployed to the dev Firebase project**
+(`deploy-dev.yml` fires on any push to `dev`, ungated), shipping SEC-4's
+`functions/telegram-shared.js` and SEC-1's `database.rules.json`. Prod is
+untouched and gated.
+
+Read the roadmap's CLOSED entries before trusting any of its *open*
+prescriptions: three of the six shipped differently from what the doc proposed
+(SEC-7's suggested header would have served a blank panel, SEC-5's "test N/A
+(config)" was wrong, and SEC-4 shipped stricter than prescribed). Each
+departure and its evidence is recorded in that item's entry.
 
 - **SEC-1** — `1ae38a8` + `e9e6dd6`. Security, Critical/High.
 - **SEC-2** — the `uid:"/"` path-collapse guard defeat. Robustness, High,
@@ -59,17 +67,16 @@ commit builds on.)
   no ignore rule covers. `git check-ignore` tests it directly — the roadmap's
   "N/A (config)" was wrong.
 
-Open: **SEC-6 + SEC-8** — the revoke-parity gap and the doc-ID correction, which
-the roadmap sequences as one piece of work. Both are `ops/**` + docs and ride no
-deploy. Nothing else in the audit is outstanding. SEC-2 did **not** subsume SEC-4 — it closed the plant
-at this panel's entry layers; `rootUpdate` still disagrees with the SDK about
-what path a collapsed key names. G3/#302 stays parked and out of scope — do
-**not** fold SEC-6 into it (they are different mechanisms; see the roadmap's
-SEC-8).
+Open: **SEC-6 + SEC-8**, and nothing else from the audit — the revoke-parity gap
+and the doc-ID correction, which the roadmap sequences as one piece of work.
+Both are `ops/**` + docs and ride no deploy. G3/#302 stays parked and out of
+scope: do **not** fold SEC-6 into it, they are different mechanisms (no revoke
+at all vs an honoured unexpired token), which is the whole reason SEC-8 exists.
 
 **THE BUILD QUEUE IS DONE AND MERGED. NOTHING IS IN FLIGHT.** All six items
 ruled on 2026-08-03 — G4, M12, M5, M4, M3, M8 — are built, verified and merged
-to `dev` (`aa7322b`); `origin/dev` = `aa7322b`, working tree clean. **There is
+to `dev` (`aa7322b`), which the security-audit merge above now sits on top of.
+**There is
 no owed build work on this repo**, and no operator run is owed either. What is
 left is **exactly six open items and no more**: the five WON'T FIX rulings
 (G1, M1, M2, M6, M7) and G3, parked as
@@ -1052,6 +1059,31 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **A roadmap prescription is a hypothesis, not a spec — verify it before
+  implementing it.** Three of the six security-audit items shipped differently
+  from what `docs/security-audit-2026-08-04-roadmap.md` proposed, and each
+  departure was found by *checking*, not by reading harder: SEC-7's suggested
+  CSP (`default-src 'none'`) would have blocked the panel's own `fetch` and
+  served a blank page; SEC-5's "Test: N/A (config)" was wrong (`git
+  check-ignore` tests it directly); SEC-4's "normalize the key" would have left
+  an empty uid writing a whole top-level node, so it ships as a refusal. The
+  same doc is still the source of truth for what is OPEN — read the CLOSED
+  entries first to calibrate how much its prescriptions are worth.
+- **Two verification techniques worth reusing, both offline.**
+  * *Real-SDK path probe.* `firebase-admin` validates `ref()`/`update()`
+    arguments synchronously, before any network, so a plain node script with a
+    fake `databaseURL` and no credential settles questions like "what path does
+    `users//` actually name?" (`/users`) and "would the SDK reject this
+    write-map?". This is how SEC-4 was confirmed rather than argued.
+  * *Real-browser panel smoke.* Unit tests cannot tell a hardened panel from a
+    broken one. Serving the real `panel.html` through the real
+    `createHttpServer` in headless Chromium against canned routes catches a CSP
+    that blanks the page. `playwright-core` is **not** a repo dependency —
+    install it into a scratch dir (`npm install playwright-core --no-save`) and
+    launch with `executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'`.
+    Never add it to `package.json` for a one-off. And check the harness itself:
+    plant the breakage and confirm the smoke goes red, or a green run proves
+    nothing.
 - **This repo's docs fail on claims about CONSEQUENCE, not on claims about
   MECHANISM — and no test catches either.** A 2026-08-03 audit checked the
   load-bearing factual claims in these docs against the code. Descriptions of
