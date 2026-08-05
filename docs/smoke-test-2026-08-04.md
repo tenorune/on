@@ -7,7 +7,7 @@
 - **Part B** — all five run by the operator against the dev project. That is the
   first time G4's cascade block and M8's adopt tick have been seen in a browser
   against live data rather than canned responses.
-- **Part C — C1a, C1b, C2 and C3 PASS; C4, C5 and C6 are unrun.**
+- **Part C — C1a, C1b, C2, C3 and C4 PASS; C5 and C6 are unrun.**
   **SEC-6 is now fully exercised live, on both routes and both sides**: the
   account being removed is revoked (merge 2026-08-04, link-as-production
   2026-08-05) and the one that survives is not. That is the item its own roadmap
@@ -61,7 +61,7 @@ live run can tell you that the suite has not already settled.
 | **M3** | `canvasUids` shared helper | jest | integrity still reports canvases correctly on live data | B4 |
 | **M4** | non-`EEXIST` rethrow | jest, **fake fs only** | **the rethrow on a real filesystem** | C5 |
 | **M5** | 100-attempt filename cap | jest, fake fs only | nothing practical — see "Nothing to smoke test" | — |
-| **M8** | `adoptGroupNames` tick in the browser | jest + browser on **canned** responses | **the tick against a live merge** | B2, C4 |
+| **M8** | `adoptGroupNames` tick in the browser | jest + browser on canned responses; **OBSERVED against a live merge 2026-08-05** | nothing further; fully exercised | B2, C4 |
 | **M10** | jest pins the path `setFollowingEntry` builds | jest | nothing — it is a guard over two files | — |
 | **M11** | revocation clear + follow write in one atomic update | jest + rules emulator | the atomicity against the real backend | D5 |
 | **M12** | jest guard tying the rules predicate to `followeeExists` | jest | nothing — it is a guard over two files | — |
@@ -869,6 +869,29 @@ node ops/verify-merge.js --project $DEV --prod-project $PROD --tag c4v1
 Either way this is the first time `adoptGroupNames` has driven a **live** merge;
 M8's browser exercise ran against canned responses with no database behind it.
 
+**OBSERVED 2026-08-05 — the FULL variant, and it landed exactly as derived.**
+`verify-merge --tag c4v1` reported **56 of 57**, the single owed claim being:
+
+```
+1 OF 57 CLAIM(S) OWED:
+  ✗ groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName
+      — want "S in GB", got "L in GB"
+```
+
+Two results in one line, and they are worth separating:
+
+- **M8 works live.** `got "L in GB"` is the **loser's** per-group display name
+  sitting on the survivor's member record. That is what ticking the box is for,
+  and before M8 it was unreachable from the browser at all — `panel.html` never
+  sent `adoptGroupNames`, so this outcome could not be produced without POSTing
+  the route by hand. **First time adoption has driven a live merge.**
+- **M13 is confirmed, and is no longer a derived claim.** It was filed on
+  2026-08-04 from reading `merge-fixture.js` against `panel.html`, with the
+  false failure never having been seen. It has now been seen: the predicted
+  path, the predicted expected value, the predicted actual value, and a count of
+  exactly one. Nothing else was owed, which is the part that matters — it means
+  the adoption changed precisely the record it should have and nothing else.
+
 **Clean up**, and run the integrity report afterwards:
 
 ```bash
@@ -1136,7 +1159,7 @@ row, and a row that owes something says so.
 | C1b | SEC-6 merge: `tokensValidAfterTime` advances | **PASS — OBSERVED 2026-08-04, both rows** | **Loser** `d92925e1…e71c` (`providerCount: 0`): `Mon 03 Aug 11:17:32 GMT` → `Tue 04 Aug 20:37:13 GMT`, +119,981 s. **Survivor**: read post-merge, timestamp predates the merge → never revoked (one read suffices; a revoke only moves the field forward). **First live sighting of SEC-6's revoke**, which was UNVERIFIED-LIVE in its own roadmap entry. ⚠️ Residual assumption: that no other revoking operation ran between the loser's two reads. |
 | C2 | SEC-6 link-as-production revokes the derived account only | **PASS — OBSERVED 2026-08-05, both rows** | **Derived** `64b7c129…928c`: `03 Aug 10:09:56` → `05 Aug 19:49:09 GMT`, +207,553 s. **Phrase** `c45849d7…d04b`: post-link value `03 Aug 10:23:25 GMT`, predates the link → never revoked, *and* its `lastRefreshTime` is 7½ min before the revoke, so a demonstrably live session survived. Completes SEC-6 across **both** routes. |
 | C3 | G4 cascade agrees preview→execute; enumeration entry survives | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
-| C4 | M8 adopted merge (say which variant was run) | | ⚠️ read C4's warning first |
+| C4 | M8 adopted merge (say which variant was run) | **PASS — OBSERVED 2026-08-05, FULL variant (ticked)** | **56 of 57**, sole owed claim `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName` — want `"S in GB"`, got `"L in GB"`. That is M8 adopting the loser's name (working) and M13's false failure (expected), exactly as derived. Nothing else owed. |
 | C5 | M4 rethrow on a real fs; nothing written | | |
 | C6 | SEC-1 `codeIndex` ownership on purge and merge | | |
 | D1 | SEC-1 charset rule live on dev | | |
