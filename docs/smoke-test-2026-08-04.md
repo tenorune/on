@@ -1282,64 +1282,137 @@ because "the redemption failed" reads like G10 and is not.
 
 #### D5b — the atomic multi-path refusal, against the REAL backend
 
-This is the part worth running. Both fixes rest on one backend behaviour: **RTDB
-rejects a multi-path update WHOLE when a single path fails a `.validate`.** That
-assumption is currently pinned by the **rules emulator** only. This exercises it
-against the live project, deterministically, with no race — by issuing the same
-shaped write the client would, rather than trying to make the client issue it.
+This is the part worth running. Both fixes rest on one backend behaviour — **RTDB
+rejects a multi-path update WHOLE when a single path fails a `.validate`** — and
+that is currently pinned by the **rules emulator only**. D5b exercises it against
+the live project deterministically, by issuing the same shaped write the client
+would rather than trying to make the client issue it.
 
-Uses the **D0 harness**, signed in as **R**. `DEAD` is any uid with no account:
+##### Prerequisites — all four, before you start
+
+1. **An account `R` signed in on the DEV site.** Any real account; it will be
+   the one doing the writes. Nothing is destroyed.
+2. **A second uid `LIVE` whose account exists and that `R` does NOT already
+   follow.** Get one from the ops panel's account list. ⚠️ **"Does not already
+   follow" is load-bearing** — see the watcher warning below.
+3. **Your database URL.** You already have it: D1 Route A's `read-rules.mjs`
+   printed it as `# deployed rules from <URL>`. Shape is
+   `https://{project}-default-rtdb.{region}.firebasedatabase.app`.
+4. **The D0 harness pasted and working** in the console you are about to use.
+
+##### Which console — this matters
+
+Use the **browser DevTools console on the DEV app site**, the origin where `R`
+is signed in.
+
+⚠️ **NOT the ops panel console** (`127.0.0.1:8787`). SEC-7 gave that page
+`connect-src 'self'`, so a `fetch` from it to `firebasedatabase.app` is blocked
+by its own CSP — you would get a CSP violation, not a rules answer. The dev
+site's origin is already allowed to talk to RTDB, because that is what the app
+does.
+
+##### Why a planted revocation is safe here
+
+`R`'s own client watches `revocations/{R}` (`js/following.ts:323`). The handler
+skips any revoker that is not already in the local following list
+(`:328`, `if (!getFollowing().some(...)) continue;`) and it **never writes to
+`revocations` itself** — it only removes a following entry. So a row planted for
+a uid `R` does not follow is inert, and nothing but your own PATCH can clear it.
+That is why prerequisite 2 says *not already following*: plant one for someone
+`R` does follow and their client will prune the follow out from under you.
+
+##### The run
+
+**Step 1 — confirm the harness is live and the token is fresh.**
 
 ```js
-const DEAD = `nobody${Date.now()}`;
+console.log(typeof rtdb, UID, DB);
+```
 
-// 1. plant a revocation row — R may write its own (rules: auth.uid === $revoked)
-console.log(await rtdb(`revocations/${UID}/${DEAD}`, 'PUT', true));   // expect 200
-console.log(await rtdb(`revocations/${UID}/${DEAD}`));                // expect true
+Expect `function`, your uid, and your database URL. If `rtdb` is undefined,
+re-paste D0. Reload the page first if D0 reported an expiry in the past.
 
-// 2. the multi-path update setFollowingEntryClearingRevocation issues:
-//    one refusable path + one that would otherwise succeed
-const patch = async (followee, body) => {
+**Step 2 — plant a revocation against a uid that does not exist.**
+
+```js
+globalThis.DEAD = `nobody${Date.now()}`;
+console.log(await rtdb(`revocations/${UID}/${DEAD}`, 'PUT', true));
+console.log(await rtdb(`revocations/${UID}/${DEAD}`));
+```
+
+Expect `200 true` then `true`. A `401` here means the token is stale — re-run D0.
+
+**Step 3 — define the multi-path PATCH.** This is the write
+`setFollowingEntryClearingRevocation` issues: the following entry and the
+revocation clear, in **one** update rooted at `/`.
+
+```js
+globalThis.patch = async (body) => {
   const r = await fetch(`${DB}/.json?auth=${TOKEN}`, { method: 'PATCH', body: JSON.stringify(body) });
   return `${r.status} ${await r.text()}`;
 };
-console.log(await patch(DEAD, {
-  [`userPrefs/${UID}/following/${DEAD}`]: { code: 'ZZZZZZ', label: 'x' },
-  [`revocations/${UID}/${DEAD}`]: null,
-}));                                                                  // expect 401
-
-// 3. the revocation must have SURVIVED — this is M11's property
-console.log(await rtdb(`revocations/${UID}/${DEAD}`));                // expect STILL true
 ```
 
-**Expect** `401 Permission denied` on the PATCH and the revocation still `true`.
-If the revocation came back `null`, RTDB applied part of the update — the clear
-landed while the following write was refused — and **M11's fix does not hold on
-the real backend**, which would be a genuine finding.
-
-**The control — the same update must land WHOLE when it is allowed.** Pick a
-followee who really exists (`LIVE`), plant a revocation for them, and run the
-identical PATCH:
+**Step 4 — send it for the DEAD followee. This must be refused.**
 
 ```js
-const LIVE = '<a uid whose account exists>';
-console.log(await rtdb(`revocations/${UID}/${LIVE}`, 'PUT', true));   // 200
-console.log(await patch(LIVE, {
-  [`userPrefs/${UID}/following/${LIVE}`]: { code: 'ZZZZZZ', label: 'control' },
-  [`revocations/${UID}/${LIVE}`]: null,
-}));                                                                  // expect 200
-console.log(await rtdb(`revocations/${UID}/${LIVE}`));                // expect null — cleared
+console.log(await patch({
+  [`userPrefs/${UID}/following/${DEAD}`]: { code: 'ZZZZZZ', label: 'x' },
+  [`revocations/${UID}/${DEAD}`]: null,
+}));
 ```
 
-Without the control, a surviving revocation shows only that *something* was
-refused, not that the update is atomic.
+Expect `401 {"error":"Permission denied"}` — the G6 `.validate` refuses the
+following path because `users/{DEAD}/presence/code` does not exist.
 
-⚠️ **Clean up** — the control really does add a following entry:
+**Step 5 — the revocation must have SURVIVED. This is M11.**
+
+```js
+console.log(await rtdb(`revocations/${UID}/${DEAD}`));
+```
+
+**Expect `true`.** If it comes back `null`, RTDB applied part of the update —
+the clear landed while the following write was refused — and **M11's fix does
+not hold on the real backend**. That is a genuine finding, not a test error.
+
+**Step 6 — the control: the same update must land WHOLE when it is allowed.**
+
+```js
+globalThis.LIVE = '<the uid from prerequisite 2>';
+console.log(await rtdb(`revocations/${UID}/${LIVE}`, 'PUT', true));   // expect 200
+console.log(await patch({
+  [`userPrefs/${UID}/following/${LIVE}`]: { code: 'ZZZZZZ', label: 'd5b-control' },
+  [`revocations/${UID}/${LIVE}`]: null,
+}));                                                                  // expect 200
+console.log(await rtdb(`revocations/${UID}/${LIVE}`));                // expect null
+console.log(await rtdb(`userPrefs/${UID}/following/${LIVE}`));        // expect the entry
+```
+
+Expect `200`, `200`, `null`, then the entry. **Without this step you have proved
+nothing** — a surviving revocation in step 5 is equally consistent with every
+write failing, e.g. a stale token. The control is what makes step 4's refusal
+mean "this specific path was refused".
+
+**Step 7 — clean up.** The control genuinely added a following entry.
 
 ```js
 console.log(await rtdb(`userPrefs/${UID}/following/${LIVE}`, 'DELETE'));
 console.log(await rtdb(`revocations/${UID}/${DEAD}`, 'DELETE'));
+console.log(await rtdb(`userPrefs/${UID}/following`));   // confirm LIVE is gone
 ```
+
+`R`'s contact list will show and then lose that entry as the client syncs; that
+is expected. No `users/{LIVE}/followers/{R}` row was ever written — this PATCH
+is only the `setFollowingEntryClearingRevocation` half, not `registerAsFollower`.
+
+##### Reading the result
+
+| Step 4 | Step 5 | Step 6 | Verdict |
+|---|---|---|---|
+| `401` | `true` | `200`, cleared | **PASS** — the update is atomic on the live backend |
+| `401` | `null` | `200`, cleared | **FINDING** — RTDB applied half the update; M11 does not hold |
+| `401` | `true` | `401` | **INVALID** — everything is failing; stale token or wrong `DB` |
+| `200` | — | — | **FINDING** — the G6 guard did not refuse a dangling followee (contradicts D2) |
 
 ---
 
