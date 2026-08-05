@@ -35,7 +35,7 @@
 <div id="users">
   <table><thead><tr>
     <th data-k="uid">uid</th><th data-k="code">code</th><th data-k="provenance">origin</th>
-    <th data-k="createdAt">created</th><th data-k="lastSeen">last active</th><th data-k="statusLabel">status</th>
+    <th data-k="createdAt" title="Firebase Auth record creation time. An expunge clears RTDB but leaves the Auth record, and a re-bootstrapped account reuses it — so this can read days old while the account's data is seconds old (M15).">auth created</th><th data-k="lastSeen">last active</th><th data-k="statusLabel">status</th>
     <th data-k="contacts">contacts</th><th data-k="groupCount">groups</th><th data-k="canvasCount">canvas</th>
     <th data-k="pushTokenCount">tokens</th><th data-k="notifyChannel">channel</th><th data-k="locationOptIn">loc</th>
   </tr></thead><tbody id="rows"></tbody></table>
