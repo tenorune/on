@@ -107,11 +107,20 @@ in the operator panel now revokes, which bounds that window but cannot close it
 the followups doc, not from folklore.
 
 **Branch status (2026-08-05, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
-— FOUR COMMITS, PUSHED, NOT MERGED.** Cut from `origin/dev` at `59f1a51`.
-`2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), plus the docs
-commit carrying this file and the ledger. **No merge to `dev` was made and none
-was asked for** — the maintainer merges, and `dev` → `main` is theirs. No PR was
-opened. Working tree clean, nothing unpushed.
+MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.** Cut from
+`origin/dev` at `59f1a51`, which had not moved when the merge was made. Four
+commits — `2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), and the
+docs commit carrying this file, the ledger and the runbook — plus a `--no-ff`
+merge commit matching `dev`'s own history; a fast-forward was available and
+deliberately not taken. `dev` → `main` is the maintainer's; no PR was opened and
+none was asked for. Working tree clean, nothing unpushed. The feature branch is
+now fully contained in `dev` and is redundant — kept, not deleted, like its
+predecessors.
+
+⚠️ **The merge was made from a temporary branch at `origin/dev`, NOT by checking
+out local `dev`.** Local `dev` is a shallow-clone artifact (see the landmine
+below) and merging into it would have produced garbage. `git push origin
+HEAD:dev` is the shape to reuse; local `dev` was left untouched.
 
 ⚠️ **Nothing here would deploy if it were merged.** Every file is under
 `functions/ops/**` (excluded from the functions archive via `functions.ignore`),
@@ -697,10 +706,17 @@ session container has ever held a service-account credential, so: `--adopt` has
 never been passed to a real run (the seam beyond the call site is pinned by a
 source assertion, and the test says so); the upper-cased codes have never been
 seeded; and the renamed column has not been RENDERED, only asserted in the
-markup, since `panel.html` has no DOM harness. ⚠️ **UNKNOWN, and it gates the
-M14 change: whether a seeded fixture is currently live on the dev project.** If
-one is, clean it with the pre-M14 build first or its `codeIndex/` entries
-strand.
+markup, since `panel.html` has no DOM harness.
+
+**M14's one live precondition was met before the merge.** Whether a seeded
+fixture was live on dev was UNKNOWN from a session container — there is no
+credential here — so it was raised as the operator's to settle, and **they
+reported the old fixtures cleaned up (2026-08-05) before instructing the
+merge.** REPORTED, not observed by this session: nothing here can see the dev
+project. ⚠️ **The constraint itself did not expire with those fixtures** — any
+fixture seeded by a pre-M14 build must still be cleaned by that build, because
+`--clean` derives the `codeIndex/` keys it nulls from `fixtureCodes`, which
+now upper-cases. It is recorded at the function and in `ops/README.md`.
 
 ⚠️ **This work ships NOTHING.** Every changed file is under `functions/ops/**`
 (excluded from the functions archive via `functions.ignore`), under
