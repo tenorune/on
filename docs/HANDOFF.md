@@ -11,32 +11,50 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**START HERE: nothing is owed. Choose the next piece of work.** The
-2026-08-04 security audit is **finished — all eight items CLOSED and merged to
-`dev`** — and the build queue before it was already done. There is no in-flight
-branch, no owed operator run, and no half-finished change anywhere in this repo.
-A session picking this up **chooses** what to do next rather than continuing
-something — and "chooses" means *with the operator*, not instead of them. The
-ledger is an inventory, not a menu a session may order from; nothing on it is
-self-authorising, and **G3 least of all** (see below).
+**START HERE: nothing is owed, and there are THREE UNRULED items — that is the
+open decision.** The live smoke test of everything closed since the last one is
+**COMPLETE**: `docs/smoke-test-2026-08-04.md`, every step run against the dev
+project across 2026-08-04/05. Parts A, B, C and E pass; Part D passes except
+D5a, which is partial *by nature* rather than for want of running (see below).
 
-**What is actually open, and it is all deliberate:** the five WON'T FIX rulings
-(G1, M1, M2, M6, M7) and **G3**, parked as
-[#302](https://github.com/tenorune/on/issues/302) — a whole-app rules gap,
-spec-first, not started. `docs/operator-panel-followups.md` is the ledger of
-record for every one of them, with a stable ID and the reasoning. Nothing else
-is left; the "deferred minors" section there is entirely CLOSED or WON'T FIX.
+**What is open:**
 
-**"Open" here means unresolved, not available.** Every one of these six is
-closed to sessions: five are ruled WON'T FIX, and G3 needs the operator's
-explicit go-ahead (see directly below). So the honest reading of this list is
-that **there is no work on it a session may start on its own** — if that leaves
-the choice empty, the answer is to ask, not to pick the biggest item.
+| | |
+|---|---|
+| **M13, M14, M15** | **NEW and UNRULED** — filed 2026-08-04/05, each with `file:line`, evidence and costed options in `docs/operator-panel-followups.md`. **A ruling is the operator's; filing is not one.** No session may start one alone. |
+| **G1, M1, M2, M6, M7** | **WON'T FIX**, ruled 2026-08-03. Raise it before working one, not after. |
+| **G3 / #302** | **Parked**, and needs the operator's explicit in-session go-ahead — see the standing rule directly below. |
+
+So the honest reading is unchanged from the last handoff: **there is nothing on
+the ledger a session may start on its own.** If that leaves the choice empty,
+the answer is to ask, not to pick the biggest item.
+
+**What the smoke test settled**, if you read nothing else about it — four items
+stopped being jest-and-emulator-only:
+
+- **SEC-6**'s revoke is **observed live on both routes and both sides** — the
+  account being removed is revoked, the survivor is not. Its own roadmap entry
+  had marked it UNVERIFIED-LIVE.
+- **RTDB's all-or-nothing multi-path update** — the single assumption both
+  **G10** and **M11** rest on — is confirmed against the real project, not just
+  the rules emulator (step D5b).
+- **M4**'s non-`EEXIST` rethrow ran on a real filesystem; every prior test drove
+  a mock.
+- **G4**'s cascade block and **M8**'s adopt tick were driven in a browser
+  against live data for the first time.
+
+**What it could NOT settle, and never will:** G10's reorder and M11's atomicity
+only fire in a race window between `getCreatorCode`'s read of
+`users/{C}/presence/code` and the write landing — a purged creator bails at
+`creator-missing` first. Not hand-reachable; jest and the emulator are the right
+level for them. That is recorded at D5, not a gap to re-derive.
 
 🛑 **G3/#302 IS NOT AVAILABLE WORK. DO NOT START IT WITHOUT THE OPERATOR'S
 EXPLICIT GO-AHEAD — no session, ever, for any reason.** It is the largest open
 item in this repo and it reads like the obvious thing to pick up. That is
-exactly the trap: being the only unruled item on the ledger is NOT permission.
+exactly the trap: being unruled is NOT permission. (As of 2026-08-05 it is not
+even the only unruled item — M13, M14 and M15 are too — and that changes
+nothing here.)
 The go-ahead has to be given in the session, in the operator's own words, for
 G3 specifically. Absent that, G3 is not a candidate — not to spec, not to
 probe, not to "just look at what it would take". If you have read this far
@@ -61,6 +79,21 @@ writes landing 33 min after the revoke, refused by 66). Every destructive route
 in the operator panel now revokes, which bounds that window but cannot close it
 — only the rules can. If the go-ahead is given, start from the measurement in
 the followups doc, not from folklore.
+
+**Branch status (2026-08-05, LATEST): `claude/knockknock-dev-setup-u2cpr8`
+MERGED TO `dev` AND PUSHED TWICE, at the operator's explicit instruction.**
+`origin/dev` moved `c42cd94` → `a2b8c2d` (the smoke-test page, M13/M14), then
+`a2b8c2d` → `38e4bc2` (the live results, M15, the SEC-6 roadmap correction).
+Both are `--no-ff` merge commits matching `dev`'s own history; a fast-forward
+was available each time and deliberately not taken. Working tree clean, nothing
+unpushed, the branch fully contained in `dev` and now redundant — kept, not
+deleted, like its predecessors. `dev` → `main` is the maintainer's; no PR was
+opened and none was asked for.
+
+⚠️ **Both pushes fired `deploy-dev.yml` and shipped NOTHING.** Every file in
+both merges is under `docs/**`. `database.rules.json`, `functions/**`, `js/**`
+and `.github/**` are untouched — verified by filename before each merge, not
+inferred. Do not generalise that to the next merge.
 
 ### The security audit, for reference only
 
@@ -500,6 +533,17 @@ Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
 Telegram link case) matter most if you touch merge code.
 
+⚠️ **THE CLONE IS SHALLOW, SO CROSS-BRANCH COUNTS AGAINST LOCAL `dev` ARE
+MEANINGLESS.** `git rev-parse --is-shallow-repository` is `true`, there are
+grafted commits, and `git merge-base origin/dev dev` returns **nothing** — the
+shared ancestry is cut off. Local `dev` therefore reports as wildly diverged
+(129 ahead / 134 behind at `361e65c`) and `git merge-base --is-ancestor 361e65c
+origin/dev` answers **NO**, both of which are artifacts. **It is not divergence
+and there is nothing to repair.** A session in this container mistook it for
+real divergence once (2026-08-05) before checking. Work against `origin/dev`,
+which is always correct; leave local `dev` alone. This is the same root cause as
+the existing note that `git fetch --unshallow origin` fails on proxy auth.
+
 ⚠️ **Do not touch code without the operator's explicit say-so** — propose the
 change and get approval BEFORE any edit. The operator drives; expect
 hands-on iteration ("done" is their call).
@@ -572,6 +616,14 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**GREEN BAR OBSERVED ON THE MERGED RESULT at `38e4bc2` — `dev`'s tip, not the
+branch's (2026-08-05):** functions **1111/1111** (33 suites) · rules (emulator)
+**119/119** (12) · web jest **2149/2149** (88) · `typecheck` +
+`typecheck:scripts` clean · `node scripts/prod.js` builds. Identical at
+`a2b8c2d`. Every number matches the pre-merge baseline exactly, which is what a
+docs-only merge should produce — the merges carry no code.
+
 
 **GREEN BAR OBSERVED ON THE MERGED RESULT at `aa7322b` — `dev`'s tip, not the
 branch's (2026-08-03):** web jest **2149/2149** (88 suites) · rules (emulator)
