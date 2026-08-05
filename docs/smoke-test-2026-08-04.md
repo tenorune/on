@@ -1,16 +1,26 @@
 # Smoke test — the followup queue + the security audit (2026-08-04)
 
-**Status (2026-08-04): PARTS A AND B PASS. C, D and E are UNRUN.**
+**Status (2026-08-05): EVERY STEP HAS RUN. A, B, C and E pass; D passes except
+D5a, which is partial by nature — see its row.**
 
 - **Part A** — A0–A5 exercised in a session container on a fake credential;
   **A6** run on the operator machine, and it is the only one that needed to be.
 - **Part B** — all five run by the operator against the dev project. That is the
   first time G4's cascade block and M8's adopt tick have been seen in a browser
   against live data rather than canned responses.
-- **Parts C, D and E have never been run.** Every destructive check, every
-  client/device check, and the deployed-functions regression are all still owed —
-  including **C1b**, SEC-6's revoke against real Firebase Auth, which its own
-  roadmap marks UNVERIFIED-LIVE.
+- **Part C — ALL SIX STEPS PASS** (C1a, C1b, C2, C3, C4, C5, C6). Every
+  destructive check on this page has now run against the dev project.
+  **SEC-6 is now fully exercised live, on both routes and both sides**: the
+  account being removed is revoked (merge 2026-08-04, link-as-production
+  2026-08-05) and the one that survives is not. That is the item its own roadmap
+  entry marked UNVERIFIED-LIVE.
+- **Part D — D1, D2, D3, D4 and D5b PASS; D5a is partial.** The live run's
+  headline result is D5b: RTDB's all-or-nothing multi-path behaviour, which both
+  G10 and M11 rest on, is confirmed on the real project rather than only in the
+  rules emulator.
+- **Part E — E1 PASSES.** `performLink`, graduation and expunge all run clean
+  on dev with no `rootUpdate` error, which is the only claim a live run can make
+  for SEC-4.
 
 Nothing is a passing row until the results table at the bottom says so.
 
@@ -25,11 +35,17 @@ what shipped *after* those steps were exercised, namely
 - the eight items of `docs/security-audit-2026-08-04-roadmap.md` —
   **SEC-1 … SEC-8**.
 
-Every one of those is verified by **jest, the rules emulator, or an offline SDK
-probe only**. No session container has ever held a service-account credential, so
-none of it has run against a live Firebase project. That is the gap this file
-exists to close, and it is why "the suite is green" is not an answer to any step
-below.
+**When this page was written**, every one of those was verified by **jest, the
+rules emulator, or an offline SDK probe only** — no session container has ever
+held a service-account credential, so none of it had run against a live Firebase
+project. That was the gap this file existed to close, and it is why "the suite is
+green" is not an answer to any step below.
+
+**As of 2026-08-05 that gap is mostly closed.** Parts A, B and C have all been
+run on the dev project. What is left is **Part D** (the client fixes — G6, G9,
+G10, M11, and SEC-1's charset rule as deployed), which needs a real signed-in
+client, and **Part E** (the SEC-4 regression). Those five items are still
+jest-and-emulator only, and the inventory table below marks each one.
 
 Read `functions/ops/README.md` (the runbook) and the "Before you start" section
 of `docs/operator-panel-smoke-test.md` first — its preconditions (dev project
@@ -43,25 +59,25 @@ live run can tell you that the suite has not already settled.
 
 | ID | What shipped | Verified so far | Live run adds | Step |
 |---|---|---|---|---|
-| **SEC-1** | `presence/code` charset rule; three admin sinks check `codeIndex` ownership | rules emulator + store mock | the rule is really deployed on dev; the ownership check on live data | D1, C6 |
-| **SEC-2** | `requireUid`/`assertUid` at the edge and in the builders | jest (105 cases) | nothing — but it is free, and it pins the edge on your machine | A4 |
-| **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest | nothing logically; confirms your build serves it | A2 |
-| **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe | that no shipped caller regressed — a **regression** check, not a positive one | E1 |
-| **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore` | that dumps land there from *your* launch directory | A5 |
-| **SEC-6** | `endSession` on merge + link-as-production | jest + headless Chromium on canned routes | **the revoke itself — explicitly UNVERIFIED-LIVE** | C1, C2 |
-| **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium | that a real browser runs the panel under the nonce | A3, B0 |
+| **SEC-1** | `presence/code` charset rule; three admin sinks check `codeIndex` ownership | rules emulator + store mock; **ownership check OBSERVED on live data 2026-08-05 (C6)** | only that the charset rule is really deployed on dev | D1 |
+| **SEC-2** | `requireUid`/`assertUid` at the edge and in the builders | jest (105 cases); **every refusal exercised over HTTP 2026-08-04, incl. the two ordering cases on a real project (B4)** | nothing further | A4, B4 |
+| **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest; **12 probes run 2026-08-04** | nothing further | A2 |
+| **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe; **all three callers exercised live 2026-08-05, no regression** | nothing further — no positive test is reachable from outside | E1 |
+| **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore`; **both halves run 2026-08-04** | nothing further | A5 |
+| **SEC-6** | `endSession` on merge + link-as-production | **OBSERVED LIVE on BOTH routes, both sides** — merge 2026-08-04, link-as-production 2026-08-05 | nothing further; the item is fully exercised | C1, C2 |
+| **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium; **headers checked and the panel driven in a real browser 2026-08-04/05** | nothing further | A3, B0 |
 | **SEC-8** | docs only — "G3" kept on the merge leg | n/a | nothing to run | — |
-| **G4** | purge preview names predicted cascades | jest | **the block has never been rendered in a browser** | B1, C3 |
+| **G4** | purge preview names predicted cascades | jest; **rendered in a browser and driven preview→execute 2026-08-05** | nothing further; fully exercised | B1, C3 |
 | **G6** | rules `.validate` on `following/$followee` + client gate | rules emulator | **live on dev, never exercised** | D2, D3 |
 | **G8** | purge no longer refuses an account with no Auth record | jest + the run that found it | already observed live | — |
 | **G9** | `rotateCode` drops a dead followee from its fan-out | jest | never device-observed | D4 |
-| **G10** | redemption's refusable write runs first | jest | never device-observed | D5 |
-| **M3** | `canvasUids` shared helper | jest | integrity still reports canvases correctly on live data | B4 |
-| **M4** | non-`EEXIST` rethrow | jest, **fake fs only** | **the rethrow on a real filesystem** | C5 |
+| **G10** | redemption's refusable write runs first | jest | little — the reorder only fires in a race window; see D5 | D5a |
+| **M3** | `canvasUids` shared helper | jest; **integrity run over live data 2026-08-05** | nothing further | B4 |
+| **M4** | non-`EEXIST` rethrow | jest (fake fs); **OBSERVED on a real filesystem 2026-08-05** | nothing further; fully exercised | C5 |
 | **M5** | 100-attempt filename cap | jest, fake fs only | nothing practical — see "Nothing to smoke test" | — |
-| **M8** | `adoptGroupNames` tick in the browser | jest + browser on **canned** responses | **the tick against a live merge** | B2, C4 |
+| **M8** | `adoptGroupNames` tick in the browser | jest + browser on canned responses; **OBSERVED against a live merge 2026-08-05** | nothing further; fully exercised | B2, C4 |
 | **M10** | jest pins the path `setFollowingEntry` builds | jest | nothing — it is a guard over two files | — |
-| **M11** | revocation clear + follow write in one atomic update | jest + rules emulator | the atomicity against the real backend | D5 |
+| **M11** | revocation clear + follow write in one atomic update | jest + rules emulator; **the RTDB all-or-nothing behaviour CONFIRMED on the live backend 2026-08-05** | nothing further reachable — the redemption path itself only fires in a race, see D5 | D5b |
 | **M12** | jest guard tying the rules predicate to `followeeExists` | jest | nothing — it is a guard over two files | — |
 
 ## Prerequisites, by part
@@ -665,6 +681,53 @@ account and are in case C1a, not C1b.
 **Expect:** `tokensValidAfterTime` present and **later** after the merge than
 before it, and the merge otherwise behaving as C1a. Record both timestamps.
 
+⚠️ **Read the SURVIVOR either side too — it is half the claim.** SEC-6 revokes
+the account being **removed** and never the one that survives; the survivor is
+the point of the operation and keeps its session. An advance on the loser alone
+only shows the route revokes *something*. The pass is both rows:
+
+| Account | `tokensValidAfterTime` across the merge |
+|---|---|
+| **loser** (`loserUid`) | **advances** |
+| **survivor** (`survivorUid`) | **unchanged** |
+
+A survivor whose timestamp also moved is a real finding — it would mean the
+route revokes the wrong side, or both.
+
+⚠️ **The merge must be the only revoking operation between the two reads.**
+`tokensValidAfterTime` records the most recent revoke from *any* source: another
+purge, a second panel action, or a run of `ops/verify-auth-delete.js` (which
+revokes as its own step 2) all move it. If anything else ran in between, the
+advance is not attributable to the merge.
+
+**The account here is app-born, not a fixture** — it has to be, or it has no
+Auth record. So unlike the merge-leg rehearsal, **G3 and G6 do have an author on
+this run**: close the loser's clients first, per C0.
+
+**OBSERVED 2026-08-04 — the first live sighting of SEC-6's revoke.**
+uid `d92925e118aa87b925b525e2af33e71c` (32 hex, app-derived, `providerCount: 0`
+— a custom-token account with a real Auth record, so this is C1b and not C1a):
+
+```
+before   tokensValidAfterTime  Mon, 03 Aug 2026 11:17:32 GMT   (1785755852)
+after    tokensValidAfterTime  Tue, 04 Aug 2026 20:37:13 GMT   (1785875833)
+                                                        +119,981 s (~33h20m)
+```
+
+The field advanced across the merge, which is the only observable
+`revokeRefreshTokens` has.
+
+**The survivor was read after the merge and its `tokensValidAfterTime` PREDATES
+the merge**, so it was never revoked. ⚠️ Note this needed only ONE read, and the
+reasoning is worth reusing: a revoke can only move the field *forward*, to at
+least the instant it happened. So a single post-merge read that is **older than
+the merge** already proves no revoke occurred — a "before" reading adds nothing
+on the survivor side. (The exact survivor value was not recorded; only that it
+predates `Tue, 04 Aug 2026 20:37:13 GMT`.)
+
+**Both rows of the pass condition are therefore met — loser advances, survivor
+unchanged — and SEC-6 is no longer UNVERIFIED-LIVE on the merge route.**
+
 **Verification of the reader itself, 2026-08-04:** run in a session container
 against a deliberately fake service account, it reached `getUser` and reported
 `ERROR app/invalid-credential` through its own catch — so the wiring, the
@@ -675,9 +738,6 @@ An alternative if you would rather not paste a script: `npx firebase auth:export
 carries the same value as `validSince` (epoch seconds). ⚠️ It exports **every
 user's** auth record to a file — write it outside the repo, since no `.gitignore`
 rule covers it and this is exactly the shape SEC-5 was about.
-
-**Expect:** `tokensValidAfterTime` present and **later** after the merge than
-before it, and the merge otherwise behaving as C1a. Record both timestamps.
 
 **What this still does NOT prove:** that the revoke *evicts* anything. It does
 not — that is G3, and it is parked. What you are checking is that the revoke
@@ -697,10 +757,41 @@ This route destroys the derived account exactly as production's `performLink`
 does. Use "link via merge" instead whenever the impact verdict is lossy — that is
 what the preview's verdict line is for.
 
+**OBSERVED 2026-08-05 — SEC-6's revoke on the SECOND route.** Both rows met:
+
+```
+derived  64b7c129152d3bf511d595c55faf928c   providerCount: 0
+  before  tokensValidAfterTime  Mon, 03 Aug 2026 10:09:56 GMT  (1785751796)
+  after   tokensValidAfterTime  Wed, 05 Aug 2026 19:49:09 GMT  (1785959349)
+                                                        +207,553 s — ADVANCED
+
+phrase   c45849d73f37c3252a27a8f2a37ad04b   providerCount: 0
+  after   tokensValidAfterTime  Mon, 03 Aug 2026 10:23:25 GMT  (1785752605)
+                                          predates the link — NEVER REVOKED
+```
+
+**The phrase side is stronger here than a bare "unchanged".** Its
+`lastRefreshTime` is `Wed, 05 Aug 2026 19:41:36 GMT` — about **7½ minutes
+before** the link's revoke — so that account had a client actively refreshing
+tokens across the operation and **kept its session anyway**. This is not merely
+"the route did not touch it"; it is "the route did not touch a session that was
+demonstrably live."
+
+**Incidental, and worth reading before C3:** the derived account's
+`lastRefreshTime` is `Tue, 04 Aug 2026 18:55:12 GMT`, ~25 h before the link — so
+its ID token had long since expired and there was no G3 window to speak of on
+this run. `lastRefreshTime` is a proxy for "a client was recently alive", not
+proof of one, but a 25-hour-old refresh against a ~1 h token lifetime is about as
+clear as that proxy gets.
+
 ### C3. G4 — the cascade survives preview-to-execute
 
 Purge `smk-g4v1-loser` (the group owner from B1) for real, having read its
 cascade block.
+
+⚠️ **This CONSUMES the fixture's loser, so C3 is the last step that can use the
+B1 tag.** C4 needs `smk-{tag}-loser` alive as its merge loser and therefore
+seeds its own — do not carry `g4v1` forward into it.
 
 **Expect:**
 
@@ -722,7 +813,44 @@ To force the refusal side deliberately: preview, then add a member to the owned
 group in another window, then execute. **Expect** a refusal whose diff names a
 `+ cascade:` line.
 
-### C4. M8 — execute an adopted merge ⚠️ read the warning
+### C4. M8 — execute an adopted merge ⚠️ read all of this first
+
+**C4 SEEDS ITS OWN FIXTURE. Do not reuse B1/B2's.** C3 purges
+`smk-{tag}-loser`, which is exactly the account this step needs as its *loser*,
+so C3 and C4 cannot share a tag — the account is gone by the time you get here.
+Earlier drafts of this page did not say so and reused `g4v1` throughout; that
+was a defect in the document, not in the panel.
+
+```bash
+cd /path/to/on/functions
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag c4v1        # dry run
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag c4v1 --yes
+```
+
+Refresh the panel. Then, and **check the pair against this line before you
+press execute**:
+
+> click **`smk-c4v1-loser`** → **merge into…** → survivor **`smk-c4v1-survivor`**
+
+⚠️ **`verify-merge` only ever checks `smk-{tag}-loser` → `smk-{tag}-survivor`.**
+It derives the pair from `--tag`; there is no flag to point it anywhere else. So
+merging any other pair from this fixture — including one of the peers — produces
+a large, meaningless owed count against claims describing a merge that never
+happened. **A big number here is far more likely to be the wrong pair than a
+real defect.** Read the pair out of `.ops-audit/audit.jsonl` before diagnosing
+anything:
+
+```bash
+tail -1 .ops-audit/audit.jsonl | python3 -m json.tool
+```
+
+`uids` is `[loser, survivor]` (`ops/server.js`, the `execute('merge', …)` call).
+If it is not `["smk-c4v1-loser", "smk-c4v1-survivor"]`, the run is void — clean,
+re-seed on a new tag, and start again.
+
+Now the adoption itself.
 
 **⚠️ `ops/verify-merge.js` does not know about adoption, and will report a false
 failure if you tick.** Derived from the code on 2026-08-04, not from the docs:
@@ -744,12 +872,50 @@ So run C4 one of two ways, and say which in the results table:
 - **Safe (recommended):** exercise the tick in **preview only** (B2), then untick
   and execute unticked. `verify-merge` must report **57 of 57**.
 - **Full:** execute **with** the tick and expect **56 of 57**, with the single
-  failure being `groups/smg-*-shared/members/smk-*-survivor/displayName`. Confirm
-  by hand that the value is the loser's name — that is M8 working, not a merge
-  defect. Anything else failing is a real finding.
+  failure being `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName`.
+  Confirm by hand that the value is the **loser's** name (`L in GB`) — that is M8
+  working, not a merge defect. Anything else failing is a real finding.
+
+```bash
+node ops/verify-merge.js --project $DEV --prod-project $PROD --tag c4v1
+```
 
 Either way this is the first time `adoptGroupNames` has driven a **live** merge;
 M8's browser exercise ran against canned responses with no database behind it.
+
+**OBSERVED 2026-08-05 — the FULL variant, and it landed exactly as derived.**
+`verify-merge --tag c4v1` reported **56 of 57**, the single owed claim being:
+
+```
+1 OF 57 CLAIM(S) OWED:
+  ✗ groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName
+      — want "S in GB", got "L in GB"
+```
+
+Two results in one line, and they are worth separating:
+
+- **M8 works live.** `got "L in GB"` is the **loser's** per-group display name
+  sitting on the survivor's member record. That is what ticking the box is for,
+  and before M8 it was unreachable from the browser at all — `panel.html` never
+  sent `adoptGroupNames`, so this outcome could not be produced without POSTing
+  the route by hand. **First time adoption has driven a live merge.**
+- **M13 is confirmed, and is no longer a derived claim.** It was filed on
+  2026-08-04 from reading `merge-fixture.js` against `panel.html`, with the
+  false failure never having been seen. It has now been seen: the predicted
+  path, the predicted expected value, the predicted actual value, and a count of
+  exactly one. Nothing else was owed, which is the part that matters — it means
+  the adoption changed precisely the record it should have and nothing else.
+
+**Clean up**, and run the integrity report afterwards:
+
+```bash
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag c4v1 --clean --yes
+```
+
+⚠️ `buildFixtureCleanup` derives its null-set assuming the survivor is
+`smk-{tag}-survivor`. If a merge on this fixture used any other survivor, paths
+the merge created under *that* account can fall outside what `--clean` nulls —
+so check integrity rather than assuming the tag is gone.
 
 **Filed as M13** in `docs/operator-panel-followups.md` (2026-08-04, unruled): the
 fixture claim and its rationale should either gain an `--adopt` mode or have the
@@ -778,6 +944,45 @@ the failure mode this step exists to catch.
 
 Then `chmod 700 /tmp/ro-audit`, re-run, and confirm the purge proceeds and the
 dump lands — so the refusal was the permission, not a broken route.
+
+**OBSERVED 2026-08-05 — the refusal half, on a real filesystem.** Purging
+`smk-c4v1-follower` against a `chmod 500` audit dir failed with
+
+```
+Error: Error: EACCES: permission denied, open '/tmp/ro-audit/1785961312210-purge-smk-c4v1-follower.json'
+```
+
+and **the account was still fully present afterwards**. That is the half the
+step exists for: `writeAuditRecord` (`ops/server.js:662`) runs before
+`apply(plan)` (`:680`), so a pre-image that cannot be written stops the
+destructive write rather than preceding it.
+
+It also pins M4's branch on real hardware for the first time. `isEexist` tests
+`err.code === 'EEXIST'`; `EACCES` is not, so `writeExclusive` rethrows
+immediately after **one** attempt — no retry, no filename bumping. Every prior
+test of that branch drove a fake fs.
+
+**The control passed on the second attempt, and the first attempt at it is the
+trap worth recording.** `chmod 700` had been typed into the terminal the panel
+was running in the **foreground** of, so it went to the node process's stdin and
+the shell never ran it — no error, and the directory stayed at mode `500`
+(`ls -ld` read `dr-x------`, owner matching `id -un`, which is what proved it:
+a chmod by the owner cannot fail). Re-run from a second terminal, the purge
+proceeded and `smk-c4v1-follower` was purged.
+
+⚠️ **Run the `chmod` in a different terminal, or stop the panel first.** A
+restart is *not* needed for the permission change itself — permissions are
+evaluated at `open(2)` and nothing here caches them — but a foreground panel
+will silently swallow the command.
+
+**The dump necessarily landed**, and this needs no separate check:
+`writeAuditRecord` throws on failure and runs *before* `apply(plan)`, so a purge
+that proceeded is a purge whose pre-image was written first. That is the same
+ordering the refusal half demonstrated, observed from the other side.
+
+⚠️ **Clean up afterwards.** `/tmp/ro-audit/` now holds a real pre-image — full
+account data, the same content SEC-5 was about. It is outside the repo so no
+`.gitignore` rule applies to it; delete it rather than leaving it in `/tmp`.
 
 **What this does NOT cover:** M5's 100-attempt cap. See "Nothing to smoke test".
 
@@ -815,48 +1020,199 @@ of G6 and the SEC-1 charset rule are **live on the dev project** (CI deploys
 These need a signed-in client on dev — the web app or the Mini App. Use the
 browser console against the dev hosting site for the write attempts.
 
-### D1. SEC-1 — the charset rule is really deployed on dev
+### D0. The console harness — run this first
 
-As a signed-in dev user, attempt to write a bad share code to your **own**
-`presence/code`:
+⚠️ **The browser console cannot use this app's Firebase SDK.** The app is on the
+**modular** SDK, nothing is exposed on `window`, and the config is baked into the
+bundle by esbuild. Any snippet calling `firebase.database()` — the **v8 compat**
+namespace — dies with `firebase is not defined`. Two earlier drafts of Part D
+did exactly that.
+
+What the console *can* do is read the ID token Firebase Auth persists in
+IndexedDB and drive the RTDB **REST API** with it. Rules apply to REST requests
+carrying `?auth=<ID token>` exactly as they do to the SDK, so this tests the
+real thing.
+
+**Reload the page first.** An ID token lives about an hour, and an expired one
+makes every write fail identically — which reads as a pass.
 
 ```js
-// browser console, signed in on the DEV site
-await firebase.database().ref(`users/${uid}/presence/code`).set('/');        // expect PERMISSION_DENIED
-await firebase.database().ref(`users/${uid}/presence/code`).set('abc');      // expect PERMISSION_DENIED (lowercase)
-await firebase.database().ref(`users/${uid}/presence/code`).set('AB3XZ9');   // expect OK
+// paste once per console session, on the DEV site, signed in
+globalThis.__rec = await new Promise((resolve, reject) => {
+  const open = indexedDB.open('firebaseLocalStorageDb');
+  open.onerror = () => reject(open.error);
+  open.onsuccess = () => {
+    const all = open.result.transaction('firebaseLocalStorage', 'readonly')
+      .objectStore('firebaseLocalStorage').getAll();
+    all.onerror = () => reject(all.error);
+    all.onsuccess = () => resolve(all.result.find(r => String(r.fbase_key).startsWith('firebase:authUser:')));
+  };
+});
+if (!__rec) throw new Error('no signed-in user on this origin');
+globalThis.UID = __rec.value.uid;
+globalThis.TOKEN = __rec.value.stsTokenManager.accessToken;
+globalThis.DB = 'https://<project>-default-rtdb.<region>.firebasedatabase.app';
+globalThis.rtdb = async (path, method = 'GET', value) => {
+  const r = await fetch(`${DB}/${path}.json?auth=${TOKEN}`,
+    method === 'GET' ? {} : { method, body: JSON.stringify(value) });
+  const body = await r.text();
+  return (method === 'GET' && r.ok) ? JSON.parse(body) : `${r.status} ${body}`;
+};
+console.log('uid', UID, '· expires', new Date(__rec.value.stsTokenManager.expirationTime), '· rtdb is', typeof rtdb);
 ```
 
-**Expect** the first two rejected with `PERMISSION_DENIED` and the third to
-succeed. The rule is `^[A-Z0-9]{1,32}$` at `database.rules.json:25`.
+**Confirm it took before running any step below** — the last line must print
+`rtdb is function`. `rtdb is not defined` in a later step means this block was
+never run in *this* console, or was run on a different origin/tab.
 
-This checks **deployment**, not logic — the logic is already pinned by the rules
-emulator. If the first two succeed, the rules on dev are older than `545dadf`.
+⚠️ **No wrapping braces, and no top-level `const`, both deliberate.** A pasted
+block starting with `{` can be parsed as an object literal by the DevTools REPL,
+and top-level `const` throws on a re-paste after a token expiry. Everything
+lands on `globalThis`, so this is safe to run as many times as you need.
 
-⚠️ **Restore your own code afterwards** if you changed a real account's.
+Set `DB` to your project and region — the same URL shape `ops/server.js` derives
+(`https://{project}-default-rtdb.{region}.firebasedatabase.app`, or
+`…-default-rtdb.firebaseio.com` for `us-central1`). The block is wrapped in
+braces and assigns to `globalThis`, so it can be re-pasted after a token expiry
+without redeclaration errors.
+
+**A refused write returns `401 {"error":"Permission denied"}`.** Every step below
+reports `<status> <body>`.
+
+⚠️ **Every step in Part D needs a control** — a write that must SUCCEED. Without
+one, a bad or expired token produces the same refusals as a working guard and
+you have proved nothing. This has already caught three steps on this page (A6's
+loopback control, C5's `chmod`, D1's write-back). The controls below are all
+chosen to mutate nothing: they write back a value that is already there.
+
+### D1. SEC-1 — the charset rule is really deployed on dev
+
+⚠️ **An earlier draft of this step was unrunnable.** It said to call
+`firebase.database().ref(...)` from the browser console — that is the **v8 compat
+namespace**, and this app uses the **modular SDK**. There is no global
+`firebase`, nothing is exposed on `window`, and the config is baked into the
+bundle at build time by esbuild, so the console cannot reach the app's Firebase
+instance at all. Both routes below avoid it.
+
+**This step checks DEPLOYMENT, not logic.** The rule's behaviour is already
+pinned by the rules emulator; what is unknown is whether the deployed dev
+project is running rules newer than `545dadf`.
+
+#### Route A — read the deployed rules (recommended, decisive, no writes)
+
+The Admin credential can read `/.settings/rules.json` over REST, which returns
+the rules the project is *actually running*. Same technique `ops/deps.js` uses
+for its shallow canvas read (`credential.getAccessToken()` → `?access_token=`).
+
+Write it under `functions/` — Node resolves ESM imports relative to the file, so
+a copy in `/tmp` fails with `ERR_MODULE_NOT_FOUND` before reaching Firebase:
+
+```bash
+cd /path/to/on/functions
+cat > read-rules.mjs <<'SCRIPT'
+import { cert } from 'firebase-admin/app';
+const [projectId, region = 'europe-west1'] = process.argv.slice(2);
+if (!projectId) { console.error('usage: node read-rules.mjs <project-id> [region]'); process.exit(2); }
+const databaseURL = process.env.DATABASE_URL || (region === 'us-central1'
+  ? `https://${projectId}-default-rtdb.firebaseio.com`
+  : `https://${projectId}-default-rtdb.${region}.firebasedatabase.app`);
+try {
+  const credential = cert(JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON));
+  const token = await credential.getAccessToken();
+  const res = await fetch(`${databaseURL}/.settings/rules.json?access_token=${token.access_token}`);
+  if (!res.ok) { console.error(`rules read failed: ${res.status} ${await res.text()}`); process.exit(1); }
+  const text = await res.text();
+  console.log(`# deployed rules from ${databaseURL}\n`);
+  for (const line of text.split('\n')) {
+    if (/presence|code|following/.test(line)) console.log(line.trim());
+  }
+} catch (e) { console.error(`ERROR ${e.code || e}`); process.exit(1); }
+SCRIPT
+
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+node read-rules.mjs $DEV
+rm read-rules.mjs        # untracked; do not commit
+```
+
+The region default matches `ops/server.js`'s (`europe-west1`); pass a second
+argument or set `DATABASE_URL` if yours differs.
+
+**Expect** the `presence/code` line to carry the SEC-1 charset:
+
+```
+"code": { ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,32}$/)" },
+```
+
+If it still reads a bare length check, the dev project is running rules older
+than `545dadf` and **D2 cannot pass either** — the G6 `.validate` shipped in the
+same file. Check this before diagnosing D2.
+
+#### Route B — prove ENFORCEMENT from a signed-in client (stronger, optional)
+
+Route A shows the rule is deployed; this shows the backend enforces it. Uses the
+**D0 harness** above.
+
+```js
+const url = `users/${UID}/presence/code`;
+const current = await rtdb(url);          // read FIRST — it is the control
+console.log('current', current);
+
+console.log(await rtdb(url, 'PUT', '/'));       // expect 401 Permission denied
+console.log(await rtdb(url, 'PUT', 'abc'));     // expect 401 (lowercase)
+console.log(await rtdb(url, 'PUT', current));   // expect 200 — control, and a NO-OP
+```
+
+**Expect** `401 {"error":"Permission denied"}` for the first two and `200` for
+the third.
+
+⚠️ **The control is the third line and it must not be skipped.** Two denials on
+their own are equally consistent with a bad or expired token, in which case you
+have proved nothing — the same trap as A6's missing loopback control and C5's
+`chmod`. Writing the account's **current** code back is a control that mutates
+nothing: if it is a well-formed `[A-Z0-9]` code the rule must accept it, and the
+value is unchanged either way.
+
+⚠️ **Do not write an arbitrary new code.** `presence/code` and `codeIndex/{code}`
+are maintained together by `claimShareCode`; setting the code directly changes
+one and not the other, and `integrity.js` will report the account afterwards.
+That is exactly why the control writes back what was already there.
 
 ### D2. G6 — a follow entry may only name an account that exists
 
-```js
-// as signed-in user M, on DEV
-await firebase.database().ref(`userPrefs/${M}/following/doesnotexist123`).set({ /* … */ });
-```
+Uses the **D0 harness**. Write at all three depths — the guard is three rules,
+and `$field` alone closed only the middle one.
 
-**Expect** `PERMISSION_DENIED`. Three rules carry this, and it is worth writing a
-value at each depth rather than only the first:
+```js
+const DEAD = `doesnotexist${Date.now()}`;
+console.log(await rtdb(`userPrefs/${UID}/following/${DEAD}`,       'PUT', { code: 'ZZZZZZ', label: 'x' }));
+console.log(await rtdb(`userPrefs/${UID}/following/${DEAD}/label`, 'PUT', 'x'));
+console.log(await rtdb(`userPrefs/${UID}/following/${DEAD}/a/b`,   'PUT', 1));
+```
 
 | Path | Rule | Expect |
 |---|---|---|
-| `userPrefs/{M}/following/{dangling}` | `.validate` at `database.rules.json:10` — `users/$followee/presence/code` must exist | denied |
-| `userPrefs/{M}/following/{dangling}/label` | `$field`, same predicate, `:12` | denied |
-| `userPrefs/{M}/following/{dangling}/a/b` | `$sub`, `.validate: false`, `:13` | denied |
+| `userPrefs/{me}/following/{dead}` | `.validate` at `database.rules.json:10` — `users/$followee/presence/code` must exist | `401 Permission denied` |
+| `…/{dead}/label` | `$field`, same predicate, `:12` | `401 Permission denied` |
+| `…/{dead}/a/b` | `$sub`, `.validate: false`, `:13` | `401 Permission denied` |
 
-The `$field` copy alone closed only the middle one; `$sub` (`e2dde4e`) is what
+The `$field` copy alone closed only the middle row; `$sub` (`e2dde4e`) is what
 refuses a write two levels below a following entry.
 
-Then the positive case: follow a **real** account normally through the UI and
-confirm it still works. A guard that refuses valid follows is the failure mode
-that matters more.
+**The control — a follow the rule must ACCEPT.** Write an existing following
+entry back unchanged; it mutates nothing, and it fails if the guard is refusing
+valid follows, which is the more damaging direction:
+
+```js
+const following = await rtdb(`userPrefs/${UID}/following`);
+const live = Object.keys(following || {})[0];
+console.log(live
+  ? await rtdb(`userPrefs/${UID}/following/${live}`, 'PUT', following[live])   // expect 200
+  : 'NO FOLLOWEES — follow a real account through the UI instead, as the control');
+```
+
+⚠️ **If all four lines refuse**, the token is stale or `DB` is wrong — re-run D0
+after reloading. ⚠️ **If D1 Route A showed rules older than `545dadf`**, this
+step cannot pass: the G6 `.validate` ships in the same file.
 
 ### D3. G6 — the client gate stops the republish
 
@@ -891,26 +1247,210 @@ The filter fails **open** on an inconclusive read (`js/db/social.ts:422`,
 `.catch(() => true)`) — a network error keeps the followee rather than dropping
 it. So a rotation done offline-ish is not a counter-example.
 
-### D5. G10 + M11 — redemption's refusable write runs first, atomically
+### D5. G10 + M11 — what is reachable by hand, and what is not
 
-1. create an invite as **C**, then delete C's account;
-2. as **R**, redeem C's now-dangling invite link.
+⚠️ **Read this before running anything.** Earlier drafts of this step asked for
+something that cannot be done manually, which is why it did not make sense.
 
-**Expect:** the redemption **fails**, and leaves **nothing** behind — in
-particular no `users/{C}/followers/{R}` row. Before G10 `registerAsFollower` ran
-first and succeeded, leaving an asymmetric follower row pointing at a vanished
-creator.
+`redeemPersonalInvite` calls `getCreatorCode` (`js/db/social.ts:98`), which reads
+`users/{C}/presence/code` — **the same node the G6 rule checks**. So if the
+creator is purged, redemption returns `{ok: false, reason: 'creator-missing'}`
+at `js/invites.ts:202` and **never reaches either write**. Both fixes live past
+that point:
 
-For **M11**, the atomicity half: `setFollowingEntryClearingRevocation` issues the
-revocation clear and the following write as **one** multi-path update
-(`js/db/social.ts:331-335`). So on the failed redemption above, confirm
-`revocations/{R}/{C}` — if it existed — is **still there**. A non-atomic
-implementation would clear the revocation and then fail the follow, dropping the
-watcher's cleanup of a stale own-side follow.
+- **G10** reordered the two writes so the *refusable* one runs first;
+- **M11** made the revocation clear part of that same refusable write.
 
-The rules emulator already settled the assumption underneath this (RTDB rejects a
-multi-path update **whole** when one path fails a `.validate`). What D5 adds is
-that the deployed rules and the deployed client agree about it.
+Both therefore only fire in a **race**: the creator alive at the `getCreatorCode`
+read and gone by the time the write lands, a window milliseconds wide. **Neither
+is hand-reproducible**, and that is a property of where the fixes sit, not a gap
+in this page. They are pinned by jest and the rules emulator, which is the right
+level for them.
+
+What a live run *can* add is below. Two parts, and they answer different
+questions.
+
+#### D5a — a dangling invite is refused and writes nothing
+
+1. Signed in as **C**, create a personal invite through the UI. Copy the link —
+   it is `…/invite?i=<token>`. Note C's uid and R's uid.
+2. **Purge C** through the ops panel.
+3. Signed in as **R**, open the invite link.
+
+**Expect:** redemption fails and the app reports the invite as dead. That is the
+`creator-missing` guard, *not* G10's reorder — worth stating in the results row,
+because "the redemption failed" reads like G10 and is not.
+
+4. Confirm nothing was written under the purged creator. `users/{C}` must be
+   **entirely absent** — R cannot read it (the rules gate `users/$uid` on
+   `auth.uid === $uid`), so check it in the Firebase console or with the Admin
+   credential. A resurrected `users/{C}/followers/{R}` is the shape G10 exists to
+   prevent; here it should never have been attempted at all.
+
+#### D5b — the atomic multi-path refusal, against the REAL backend
+
+This is the part worth running. Both fixes rest on one backend behaviour — **RTDB
+rejects a multi-path update WHOLE when a single path fails a `.validate`** — and
+that is currently pinned by the **rules emulator only**. D5b exercises it against
+the live project deterministically, by issuing the same shaped write the client
+would rather than trying to make the client issue it.
+
+##### Prerequisites — all four, before you start
+
+1. **An account `R` signed in on the DEV site.** Any real account; it will be
+   the one doing the writes. Nothing is destroyed.
+2. **A second uid `LIVE` whose account exists and that `R` does NOT already
+   follow.** Get one from the ops panel's account list. ⚠️ **"Does not already
+   follow" is load-bearing** — see the watcher warning below.
+3. **Your database URL.** You already have it: D1 Route A's `read-rules.mjs`
+   printed it as `# deployed rules from <URL>`. Shape is
+   `https://{project}-default-rtdb.{region}.firebasedatabase.app`.
+4. **The D0 harness pasted and working** in the console you are about to use.
+
+##### Which console — this matters
+
+Use the **browser DevTools console on the DEV app site**, the origin where `R`
+is signed in.
+
+⚠️ **NOT the ops panel console** (`127.0.0.1:8787`). SEC-7 gave that page
+`connect-src 'self'`, so a `fetch` from it to `firebasedatabase.app` is blocked
+by its own CSP — you would get a CSP violation, not a rules answer. The dev
+site's origin is already allowed to talk to RTDB, because that is what the app
+does.
+
+##### Why a planted revocation is safe here
+
+`R`'s own client watches `revocations/{R}` (`js/following.ts:323`). The handler
+skips any revoker that is not already in the local following list
+(`:328`, `if (!getFollowing().some(...)) continue;`) and it **never writes to
+`revocations` itself** — it only removes a following entry. So a row planted for
+a uid `R` does not follow is inert, and nothing but your own PATCH can clear it.
+That is why prerequisite 2 says *not already following*: plant one for someone
+`R` does follow and their client will prune the follow out from under you.
+
+##### The run
+
+**Step 1 — confirm the harness is live and the token is fresh.**
+
+```js
+console.log(typeof rtdb, UID, DB);
+```
+
+Expect `function`, your uid, and your database URL. If `rtdb` is undefined,
+re-paste D0. Reload the page first if D0 reported an expiry in the past.
+
+**Step 2 — plant a revocation against a uid that does not exist.**
+
+```js
+globalThis.DEAD = `nobody${Date.now()}`;
+console.log(await rtdb(`revocations/${UID}/${DEAD}`, 'PUT', true));
+console.log(await rtdb(`revocations/${UID}/${DEAD}`));
+```
+
+Expect `200 true` then `true`. A `401` here means the token is stale — re-run D0.
+
+**Step 3 — define the multi-path PATCH.** This is the write
+`setFollowingEntryClearingRevocation` issues: the following entry and the
+revocation clear, in **one** update rooted at `/`.
+
+```js
+globalThis.patch = async (body) => {
+  const r = await fetch(`${DB}/.json?auth=${TOKEN}`, { method: 'PATCH', body: JSON.stringify(body) });
+  return `${r.status} ${await r.text()}`;
+};
+```
+
+**Step 4 — send it for the DEAD followee. This must be refused.**
+
+```js
+console.log(await patch({
+  [`userPrefs/${UID}/following/${DEAD}`]: { code: 'ZZZZZZ', label: 'x' },
+  [`revocations/${UID}/${DEAD}`]: null,
+}));
+```
+
+Expect `401 {"error":"Permission denied"}` — the G6 `.validate` refuses the
+following path because `users/{DEAD}/presence/code` does not exist.
+
+**Step 5 — the revocation must have SURVIVED. This is M11.**
+
+```js
+console.log(await rtdb(`revocations/${UID}/${DEAD}`));
+```
+
+**Expect `true`.** If it comes back `null`, RTDB applied part of the update —
+the clear landed while the following write was refused — and **M11's fix does
+not hold on the real backend**. That is a genuine finding, not a test error.
+
+**Step 6 — the control: the same update must land WHOLE when it is allowed.**
+
+⚠️ **Verify `LIVE` is a real account before using it.** The `PUT` below does
+**not** catch a bad value: the rules let `R` write *any* `$revoker` key under its
+own `revocations/{R}` node, so a placeholder, a typo or a dead uid all return
+`200` — and then the PATCH is refused for the same reason step 4 was, which
+looks like a failed control instead of a bad setup. This has already happened
+once. `presence` is readable by any signed-in user (`.read: "auth != null"`), so
+one line settles it:
+
+```js
+// R's OWN uid is the simplest valid choice: no lookup, no second account, and
+// the revocation watcher skips it (you do not follow yourself). Any existing
+// uid R does NOT already follow works equally well.
+globalThis.LIVE = UID;
+console.log(await rtdb(`users/${LIVE}/presence/code`));   // MUST print a code, not null
+```
+
+Only once that prints a code:
+
+```js
+console.log(await rtdb(`revocations/${UID}/${LIVE}`, 'PUT', true));   // expect 200
+console.log(await patch({
+  [`userPrefs/${UID}/following/${LIVE}`]: { code: 'ZZZZZZ', label: 'd5b-control' },
+  [`revocations/${UID}/${LIVE}`]: null,
+}));                                                                  // expect 200
+console.log(await rtdb(`revocations/${UID}/${LIVE}`));                // expect null
+console.log(await rtdb(`userPrefs/${UID}/following/${LIVE}`));        // expect the entry
+```
+
+Expect `200`, `200`, `null`, then the entry. **Without this step you have proved
+nothing** — a surviving revocation in step 5 is equally consistent with every
+write failing, e.g. a stale token. The control is what makes step 4's refusal
+mean "this specific path was refused".
+
+**Step 7 — clean up.** The control genuinely added a following entry.
+
+```js
+console.log(await rtdb(`userPrefs/${UID}/following/${LIVE}`, 'DELETE'));
+console.log(await rtdb(`revocations/${UID}/${DEAD}`, 'DELETE'));
+console.log(await rtdb(`userPrefs/${UID}/following`));   // confirm LIVE is gone
+```
+
+`R`'s contact list will show and then lose that entry as the client syncs; that
+is expected. No `users/{LIVE}/followers/{R}` row was ever written — this PATCH
+is only the `setFollowingEntryClearingRevocation` half, not `registerAsFollower`.
+
+**OBSERVED 2026-08-05 — the PASS row.** Step 4 returned
+`401 {"error":"Permission denied"}`, step 5 read the revocation back as `true`,
+and the control landed `200` and cleared it. **RTDB's all-or-nothing multi-path
+behaviour is now confirmed on the live project**, not only in the rules
+emulator — that is the single assumption both G10's reorder and M11's atomic
+write rest on.
+
+⚠️ **One detour worth keeping.** The control was first run with `LIVE` left as
+the literal placeholder. The `PUT` before it still returned `200`, because the
+rules let `R` write *any* `$revoker` key under its own `revocations/{R}` node, so
+the bad value passed the one step that should have caught it; the PATCH was then
+refused for the same reason step 4 was, which looks like a failed control rather
+than a bad setup. Hence the `users/{LIVE}/presence/code` check above.
+
+##### Reading the result
+
+| Step 4 | Step 5 | Step 6 | Verdict |
+|---|---|---|---|
+| `401` | `true` | `200`, cleared | **PASS** — the update is atomic on the live backend |
+| `401` | `null` | `200`, cleared | **FINDING** — RTDB applied half the update; M11 does not hold |
+| `401` | `true` | `401` | **INVALID** — the control did not run. Check `LIVE` first (`users/{LIVE}/presence/code` must be non-null); a placeholder or dead uid is refused exactly like step 4. Only if `LIVE` is confirmed real does this mean a stale token or wrong `DB` — and a `200` on the step-6 `PUT` rules the token out. |
+| `200` | — | — | **FINDING** — the G6 guard did not refuse a dangling followee (contradicts D2) |
 
 ---
 
@@ -935,6 +1475,37 @@ Exercise the callers and confirm they still work:
 **Expect** all three to complete normally, with no
 `rootUpdate: '<key>' has an empty segment` or `names the database ROOT` error in
 the functions logs.
+
+**OBSERVED 2026-08-05 — no regression.** `performLink`, graduation and expunge
+all completed normally, with no `rootUpdate` error in the functions logs. That
+is the whole claim E1 can make.
+
+⚠️ **One artifact seen during the run, and it is EXPECTED — not a SEC-4
+regression and not a defect.** After an expunge, the freshly re-bootstrapped
+Telegram account's **`created`** column in the panel read `2d 12h ago` rather
+than "just now".
+
+The column is the **Firebase Auth record's** creation time, not an RTDB value:
+`ops/project.js:63` reads `authByUid.get(uid)?.createdAt`, which `ops/deps.js`
+fills from `auth.listUsers` as `Date.parse(u.metadata.creationTime)`. An expunge
+clears **RTDB only** — it never deletes the Auth record, and neither does
+`link/production/execute`; only *purge* does, and only with the opt-in box. The
+Telegram uid is deterministic (`deriveTelegramUid`), so the next Mini App open
+mints a fresh custom token for the **same uid** and Firebase Auth reuses the
+**existing** record, whose `creationTime` is the original first sign-in.
+
+So the column is accurate about what it measures, and the account's *data* is
+seconds old while the column says days. Same family as the artifact step 9 of
+`docs/operator-panel-smoke-test.md` records — the recreated record also loses its
+`tg-<uid>@telegram.invalid` identifier. Both are "the Auth record survived and
+carries stale marks". To see a genuinely fresh `created`, the Auth record has to
+be deleted (purge with the box ticked), which is the only route that retires it.
+
+**Filed as M15** in `docs/operator-panel-followups.md` (2026-08-05, unruled) —
+the column is accurate about what it measures, but its label does not say what
+that is, in a tool whose next action is destructive. Note the entry prices the
+obvious "just show an RTDB-derived created too" at what it really costs: **no
+such field exists**, and adding one touches two deployed surfaces.
 
 A positive test — proving the refusal actually refuses — is not reachable from
 outside, because no caller can emit such a key: RTDB keys cannot contain `/`, and
@@ -1003,16 +1574,17 @@ row, and a row that owes something says so.
 | B2 | M8 tick appears and re-previews | **PASS — OBSERVED 2026-08-04** | first time the tick has driven a live preview rather than canned responses |
 | B3 | SEC-6 footnote on all four previews, right account named | **PASS — OBSERVED 2026-08-04** | |
 | B4 | merge/link preview uid refusal; integrity + canvases | **PASS — OBSERVED 2026-08-04** | closes A4's deferred ordering case on a real project |
-| C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | | |
-| C1b | SEC-6 merge: `tokensValidAfterTime` advances | | **the never-observed one** |
-| C2 | SEC-6 link-as-production revokes the derived account only | | |
-| C3 | G4 cascade agrees preview→execute; enumeration entry survives | | |
-| C4 | M8 adopted merge (say which variant was run) | | ⚠️ read C4's warning first |
-| C5 | M4 rethrow on a real fs; nothing written | | |
-| C6 | SEC-1 `codeIndex` ownership on purge and merge | | |
-| D1 | SEC-1 charset rule live on dev | | |
-| D2 | G6 `.validate` refuses a dangling followee | | |
-| D3 | G6 client gate stops the republish | | |
-| D4 | G9 rotate drops the dead followee | | |
-| D5 | G10 order + M11 atomicity | | |
-| E1 | SEC-4: performLink / graduation / expunge unaffected | | |
+| C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
+| C1b | SEC-6 merge: `tokensValidAfterTime` advances | **PASS — OBSERVED 2026-08-04, both rows** | **Loser** `d92925e1…e71c` (`providerCount: 0`): `Mon 03 Aug 11:17:32 GMT` → `Tue 04 Aug 20:37:13 GMT`, +119,981 s. **Survivor**: read post-merge, timestamp predates the merge → never revoked (one read suffices; a revoke only moves the field forward). **First live sighting of SEC-6's revoke**, which was UNVERIFIED-LIVE in its own roadmap entry. ⚠️ Residual assumption: that no other revoking operation ran between the loser's two reads. |
+| C2 | SEC-6 link-as-production revokes the derived account only | **PASS — OBSERVED 2026-08-05, both rows** | **Derived** `64b7c129…928c`: `03 Aug 10:09:56` → `05 Aug 19:49:09 GMT`, +207,553 s. **Phrase** `c45849d7…d04b`: post-link value `03 Aug 10:23:25 GMT`, predates the link → never revoked, *and* its `lastRefreshTime` is 7½ min before the revoke, so a demonstrably live session survived. Completes SEC-6 across **both** routes. |
+| C3 | G4 cascade agrees preview→execute; enumeration entry survives | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
+| C4 | M8 adopted merge (say which variant was run) | **PASS — OBSERVED 2026-08-05, FULL variant (ticked)** | **56 of 57**, sole owed claim `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName` — want `"S in GB"`, got `"L in GB"`. That is M8 adopting the loser's name (working) and M13's false failure (expected), exactly as derived. Nothing else owed. |
+| C5 | M4 rethrow on a real fs; nothing written | **PASS — OBSERVED 2026-08-05, both halves** | **Refusal:** `EACCES` on the pre-image write, rethrown after one attempt (M4's branch on real hardware for the first time), `smk-c4v1-follower` still fully present. **Control:** after a `chmod 700` that actually ran, the same purge proceeded and the account was purged — so the refusal was the permission, not a broken panel. The directory being verifiably `dr-x------` at the OS level is independent corroboration. |
+| C6 | SEC-1 `codeIndex` ownership on purge and merge | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; the victim's `codeIndex` entry survived a purge and a merge of the account that had planted their code. Per-step output not captured here. |
+| D1 | SEC-1 charset rule live on dev | **PASS — OBSERVED 2026-08-05, both routes** | **Route A**: deployed `/.settings/rules.json` carries the SEC-1 charset, so the dev project runs rules at or after `545dadf`. **Route B**: enforcement confirmed from a signed-in client over the REST API, including the write-back control that rules out a stale token. |
+| D2 | G6 `.validate` refuses a dangling followee | **PASS — OBSERVED 2026-08-05** | all three depths refused; control accepted |
+| D3 | G6 client gate stops the republish | **PASS — OBSERVED 2026-08-05** | reported verified by the operator |
+| D4 | G9 rotate drops the dead followee | **PASS — OBSERVED 2026-08-05** | reported verified by the operator |
+| D5b | M11 — atomic multi-path refusal on the live backend | **PASS — OBSERVED 2026-08-05** | Refused `401`, revocation survived as `true`, control landed `200` and cleared it. **Confirms RTDB's all-or-nothing behaviour on the real project**, previously emulator-only — the assumption both G10 and M11 rest on. |
+| D5a | G10 — a dangling invite is refused and writes nothing | **PARTIAL — OBSERVED 2026-08-05** | Redemption of a purged creator's invite **fails**. ⚠️ That is the `creator-missing` guard (`js/invites.ts:202`), **not** G10's reorder — the reorder only fires in a race and is not hand-reachable (see D5). Not yet confirmed: that `users/{C}` is entirely absent afterwards. |
+| E1 | SEC-4: performLink / graduation / expunge unaffected | **PASS — OBSERVED 2026-08-05** | All three completed normally; no `rootUpdate` error in the functions logs. One expected artifact seen and explained in the step: after an expunge the re-bootstrapped account's `created` column reads days old, because that column is the **Auth record's** `creationTime` and an expunge never touches the Auth record. Not a regression. |

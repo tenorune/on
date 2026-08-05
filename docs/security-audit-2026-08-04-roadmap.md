@@ -380,11 +380,38 @@ Recorded for context; **no action owed**. Closed on
   the harness was itself falsified by planting the breakage (footnote and alert
   removed), which took it to four failures. Harness uncommitted, in the session
   scratchpad.
-- **Boundary — UNVERIFIED-LIVE.** No session has ever held a service-account
-  credential, so the revoke has never been observed against real Firebase Auth
-  on these two routes. Purge's revoke *was* measured on dev (2026-08-02); these
-  two inherit that measurement by sharing its implementation, which is an
-  inference, not an observation.
+- **Boundary — UNVERIFIED-LIVE when written; the MERGE half is now OBSERVED.**
+  As written (2026-08-04): no session had ever held a service-account
+  credential, so the revoke had never been observed against real Firebase Auth
+  on either route, and both inherited purge's 2026-08-02 measurement by sharing
+  its implementation — an inference, not an observation.
+  **Superseded for merge on 2026-08-04**, by the operator running step C1b of
+  `docs/smoke-test-2026-08-04.md` on the dev project: for an app-born account
+  (`d92925e1…e71c`, `providerCount: 0`, so a custom-token account with a real
+  Auth record), `tokensValidAfterTime` advanced across the merge —
+  `Mon, 03 Aug 2026 11:17:32 GMT` → `Tue, 04 Aug 2026 20:37:13 GMT`. That field
+  is the *only* observable `revokeRefreshTokens` has, so this is the direct
+  sighting the entry said it lacked.
+  **The survivor-unchanged half is observed too** (same run): the survivor was
+  read after the merge and its `tokensValidAfterTime` predates the merge, so it
+  was never revoked. One read settles that side — a revoke can only move the
+  field forward to at least the instant it happened, so a post-merge value
+  *older* than the merge is already proof of absence.
+  **`link/production/execute` is now observed as well (2026-08-05, step C2)**,
+  and it needed its own run: it is a different route revoking a different uid
+  (`derivedUid`), reaching `endSession` by an independent path. The derived
+  account `64b7c129…928c` advanced `Mon, 03 Aug 2026 10:09:56 GMT` →
+  `Wed, 05 Aug 2026 19:49:09 GMT`, while the phrase account `c45849d7…d04b`
+  read `Mon, 03 Aug 2026 10:23:25 GMT` afterwards — predating the link, so
+  untouched. The phrase side is stronger than "unchanged": its
+  `lastRefreshTime` was 7½ minutes before the revoke, so a **demonstrably
+  live** session survived the operation.
+  **So SEC-6 is exercised live on both routes and both sides.** One caveat
+  remains, and it is small: nothing independently confirms that no *other*
+  revoking operation ran between a given pair of reads.
+  **What this does NOT show, and never could:** that the revoke *evicts*
+  anything. It does not — an issued ID token stays valid until it expires
+  because the rules never check `auth.token.auth_time`. That is G3/#302, parked.
 
 ## SEC-7 — Ops panel serves no CSP / framing headers — CLOSED
 
