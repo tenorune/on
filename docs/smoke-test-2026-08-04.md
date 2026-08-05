@@ -1031,30 +1031,37 @@ makes every write fail identically — which reads as a pass.
 
 ```js
 // paste once per console session, on the DEV site, signed in
-{
-  const rec = await new Promise((resolve, reject) => {
-    const open = indexedDB.open('firebaseLocalStorageDb');
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const all = open.result.transaction('firebaseLocalStorage', 'readonly')
-        .objectStore('firebaseLocalStorage').getAll();
-      all.onerror = () => reject(all.error);
-      all.onsuccess = () => resolve(all.result.find(r => String(r.fbase_key).startsWith('firebase:authUser:')));
-    };
-  });
-  if (!rec) throw new Error('no signed-in user on this origin');
-  globalThis.UID = rec.value.uid;
-  globalThis.DB = 'https://<project>-default-rtdb.<region>.firebasedatabase.app';
-  const idToken = rec.value.stsTokenManager.accessToken;
-  globalThis.rtdb = async (path, method = 'GET', value) => {
-    const r = await fetch(`${DB}/${path}.json?auth=${idToken}`,
-      method === 'GET' ? {} : { method, body: JSON.stringify(value) });
-    const body = await r.text();
-    return (method === 'GET' && r.ok) ? JSON.parse(body) : `${r.status} ${body}`;
+globalThis.__rec = await new Promise((resolve, reject) => {
+  const open = indexedDB.open('firebaseLocalStorageDb');
+  open.onerror = () => reject(open.error);
+  open.onsuccess = () => {
+    const all = open.result.transaction('firebaseLocalStorage', 'readonly')
+      .objectStore('firebaseLocalStorage').getAll();
+    all.onerror = () => reject(all.error);
+    all.onsuccess = () => resolve(all.result.find(r => String(r.fbase_key).startsWith('firebase:authUser:')));
   };
-  console.log('uid', UID, '· token expires', new Date(rec.value.stsTokenManager.expirationTime));
-}
+});
+if (!__rec) throw new Error('no signed-in user on this origin');
+globalThis.UID = __rec.value.uid;
+globalThis.TOKEN = __rec.value.stsTokenManager.accessToken;
+globalThis.DB = 'https://<project>-default-rtdb.<region>.firebasedatabase.app';
+globalThis.rtdb = async (path, method = 'GET', value) => {
+  const r = await fetch(`${DB}/${path}.json?auth=${TOKEN}`,
+    method === 'GET' ? {} : { method, body: JSON.stringify(value) });
+  const body = await r.text();
+  return (method === 'GET' && r.ok) ? JSON.parse(body) : `${r.status} ${body}`;
+};
+console.log('uid', UID, '· expires', new Date(__rec.value.stsTokenManager.expirationTime), '· rtdb is', typeof rtdb);
 ```
+
+**Confirm it took before running any step below** — the last line must print
+`rtdb is function`. `rtdb is not defined` in a later step means this block was
+never run in *this* console, or was run on a different origin/tab.
+
+⚠️ **No wrapping braces, and no top-level `const`, both deliberate.** A pasted
+block starting with `{` can be parsed as an object literal by the DevTools REPL,
+and top-level `const` throws on a re-paste after a token expiry. Everything
+lands on `globalThis`, so this is safe to run as many times as you need.
 
 Set `DB` to your project and region — the same URL shape `ops/server.js` derives
 (`https://{project}-default-rtdb.{region}.firebasedatabase.app`, or
