@@ -1015,23 +1015,122 @@ browser console against the dev hosting site for the write attempts.
 
 ### D1. SEC-1 — the charset rule is really deployed on dev
 
-As a signed-in dev user, attempt to write a bad share code to your **own**
-`presence/code`:
+⚠️ **An earlier draft of this step was unrunnable.** It said to call
+`firebase.database().ref(...)` from the browser console — that is the **v8 compat
+namespace**, and this app uses the **modular SDK**. There is no global
+`firebase`, nothing is exposed on `window`, and the config is baked into the
+bundle at build time by esbuild, so the console cannot reach the app's Firebase
+instance at all. Both routes below avoid it.
 
-```js
-// browser console, signed in on the DEV site
-await firebase.database().ref(`users/${uid}/presence/code`).set('/');        // expect PERMISSION_DENIED
-await firebase.database().ref(`users/${uid}/presence/code`).set('abc');      // expect PERMISSION_DENIED (lowercase)
-await firebase.database().ref(`users/${uid}/presence/code`).set('AB3XZ9');   // expect OK
+**This step checks DEPLOYMENT, not logic.** The rule's behaviour is already
+pinned by the rules emulator; what is unknown is whether the deployed dev
+project is running rules newer than `545dadf`.
+
+#### Route A — read the deployed rules (recommended, decisive, no writes)
+
+The Admin credential can read `/.settings/rules.json` over REST, which returns
+the rules the project is *actually running*. Same technique `ops/deps.js` uses
+for its shallow canvas read (`credential.getAccessToken()` → `?access_token=`).
+
+Write it under `functions/` — Node resolves ESM imports relative to the file, so
+a copy in `/tmp` fails with `ERR_MODULE_NOT_FOUND` before reaching Firebase:
+
+```bash
+cd /path/to/on/functions
+cat > read-rules.mjs <<'SCRIPT'
+import { cert } from 'firebase-admin/app';
+const [projectId, region = 'europe-west1'] = process.argv.slice(2);
+if (!projectId) { console.error('usage: node read-rules.mjs <project-id> [region]'); process.exit(2); }
+const databaseURL = process.env.DATABASE_URL || (region === 'us-central1'
+  ? `https://${projectId}-default-rtdb.firebaseio.com`
+  : `https://${projectId}-default-rtdb.${region}.firebasedatabase.app`);
+try {
+  const credential = cert(JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON));
+  const token = await credential.getAccessToken();
+  const res = await fetch(`${databaseURL}/.settings/rules.json?access_token=${token.access_token}`);
+  if (!res.ok) { console.error(`rules read failed: ${res.status} ${await res.text()}`); process.exit(1); }
+  const text = await res.text();
+  console.log(`# deployed rules from ${databaseURL}\n`);
+  for (const line of text.split('\n')) {
+    if (/presence|code|following/.test(line)) console.log(line.trim());
+  }
+} catch (e) { console.error(`ERROR ${e.code || e}`); process.exit(1); }
+SCRIPT
+
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+node read-rules.mjs $DEV
+rm read-rules.mjs        # untracked; do not commit
 ```
 
-**Expect** the first two rejected with `PERMISSION_DENIED` and the third to
-succeed. The rule is `^[A-Z0-9]{1,32}$` at `database.rules.json:25`.
+The region default matches `ops/server.js`'s (`europe-west1`); pass a second
+argument or set `DATABASE_URL` if yours differs.
 
-This checks **deployment**, not logic — the logic is already pinned by the rules
-emulator. If the first two succeed, the rules on dev are older than `545dadf`.
+**Expect** the `presence/code` line to carry the SEC-1 charset:
 
-⚠️ **Restore your own code afterwards** if you changed a real account's.
+```
+"code": { ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,32}$/)" },
+```
+
+If it still reads a bare length check, the dev project is running rules older
+than `545dadf` and **D2 cannot pass either** — the G6 `.validate` shipped in the
+same file. Check this before diagnosing D2.
+
+#### Route B — prove ENFORCEMENT from a signed-in client (stronger, optional)
+
+Route A shows the rule is deployed; this shows the backend enforces it. The
+console cannot use the SDK, so go through the RTDB REST API with the signed-in
+user's own ID token. Firebase Auth persists that token in **IndexedDB**
+(`firebaseLocalStorageDb`), which the console *can* read.
+
+**Reload the page first** — an ID token lives about an hour, and an expired one
+makes all three writes fail identically, which would look like a pass.
+
+```js
+// 1. lift the signed-in user's uid and ID token out of IndexedDB
+const rec = await new Promise((resolve, reject) => {
+  const open = indexedDB.open('firebaseLocalStorageDb');
+  open.onerror = () => reject(open.error);
+  open.onsuccess = () => {
+    const all = open.result.transaction('firebaseLocalStorage', 'readonly')
+      .objectStore('firebaseLocalStorage').getAll();
+    all.onerror = () => reject(all.error);
+    all.onsuccess = () => resolve(all.result.find(r => String(r.fbase_key).startsWith('firebase:authUser:')));
+  };
+});
+const uid = rec.value.uid, idToken = rec.value.stsTokenManager.accessToken;
+console.log(uid, 'token expires', new Date(rec.value.stsTokenManager.expirationTime));
+
+// 2. the database URL — must match your project/region
+const DB = 'https://<project>-default-rtdb.<region>.firebasedatabase.app';
+const url = `${DB}/users/${uid}/presence/code.json?auth=${idToken}`;
+const put = async (v) => {
+  const r = await fetch(url, { method: 'PUT', body: JSON.stringify(v) });
+  return `${JSON.stringify(v)} -> ${r.status} ${await r.text()}`;
+};
+
+// 3. read the CURRENT code first — it doubles as the control below
+const current = await (await fetch(url)).json();
+console.log('current', current);
+
+console.log(await put('/'));       // expect 401 Permission denied
+console.log(await put('abc'));     // expect 401 Permission denied (lowercase)
+console.log(await put(current));   // expect 200 — the control, and a NO-OP
+```
+
+**Expect** `401 {"error":"Permission denied"}` for the first two and `200` for
+the third.
+
+⚠️ **The control is the third line and it must not be skipped.** Two denials on
+their own are equally consistent with a bad or expired token, in which case you
+have proved nothing — the same trap as A6's missing loopback control and C5's
+`chmod`. Writing the account's **current** code back is a control that mutates
+nothing: if it is a well-formed `[A-Z0-9]` code the rule must accept it, and the
+value is unchanged either way.
+
+⚠️ **Do not write an arbitrary new code.** `presence/code` and `codeIndex/{code}`
+are maintained together by `claimShareCode`; setting the code directly changes
+one and not the other, and `integrity.js` will report the account afterwards.
+That is exactly why the control writes back what was already there.
 
 ### D2. G6 — a follow entry may only name an account that exists
 
