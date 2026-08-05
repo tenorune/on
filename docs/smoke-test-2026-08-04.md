@@ -1013,6 +1013,64 @@ of G6 and the SEC-1 charset rule are **live on the dev project** (CI deploys
 These need a signed-in client on dev — the web app or the Mini App. Use the
 browser console against the dev hosting site for the write attempts.
 
+### D0. The console harness — run this first
+
+⚠️ **The browser console cannot use this app's Firebase SDK.** The app is on the
+**modular** SDK, nothing is exposed on `window`, and the config is baked into the
+bundle by esbuild. Any snippet calling `firebase.database()` — the **v8 compat**
+namespace — dies with `firebase is not defined`. Two earlier drafts of Part D
+did exactly that.
+
+What the console *can* do is read the ID token Firebase Auth persists in
+IndexedDB and drive the RTDB **REST API** with it. Rules apply to REST requests
+carrying `?auth=<ID token>` exactly as they do to the SDK, so this tests the
+real thing.
+
+**Reload the page first.** An ID token lives about an hour, and an expired one
+makes every write fail identically — which reads as a pass.
+
+```js
+// paste once per console session, on the DEV site, signed in
+{
+  const rec = await new Promise((resolve, reject) => {
+    const open = indexedDB.open('firebaseLocalStorageDb');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const all = open.result.transaction('firebaseLocalStorage', 'readonly')
+        .objectStore('firebaseLocalStorage').getAll();
+      all.onerror = () => reject(all.error);
+      all.onsuccess = () => resolve(all.result.find(r => String(r.fbase_key).startsWith('firebase:authUser:')));
+    };
+  });
+  if (!rec) throw new Error('no signed-in user on this origin');
+  globalThis.UID = rec.value.uid;
+  globalThis.DB = 'https://<project>-default-rtdb.<region>.firebasedatabase.app';
+  const idToken = rec.value.stsTokenManager.accessToken;
+  globalThis.rtdb = async (path, method = 'GET', value) => {
+    const r = await fetch(`${DB}/${path}.json?auth=${idToken}`,
+      method === 'GET' ? {} : { method, body: JSON.stringify(value) });
+    const body = await r.text();
+    return (method === 'GET' && r.ok) ? JSON.parse(body) : `${r.status} ${body}`;
+  };
+  console.log('uid', UID, '· token expires', new Date(rec.value.stsTokenManager.expirationTime));
+}
+```
+
+Set `DB` to your project and region — the same URL shape `ops/server.js` derives
+(`https://{project}-default-rtdb.{region}.firebasedatabase.app`, or
+`…-default-rtdb.firebaseio.com` for `us-central1`). The block is wrapped in
+braces and assigns to `globalThis`, so it can be re-pasted after a token expiry
+without redeclaration errors.
+
+**A refused write returns `401 {"error":"Permission denied"}`.** Every step below
+reports `<status> <body>`.
+
+⚠️ **Every step in Part D needs a control** — a write that must SUCCEED. Without
+one, a bad or expired token produces the same refusals as a working guard and
+you have proved nothing. This has already caught three steps on this page (A6's
+loopback control, C5's `chmod`, D1's write-back). The controls below are all
+chosen to mutate nothing: they write back a value that is already there.
+
 ### D1. SEC-1 — the charset rule is really deployed on dev
 
 ⚠️ **An earlier draft of this step was unrunnable.** It said to call
@@ -1077,44 +1135,17 @@ same file. Check this before diagnosing D2.
 
 #### Route B — prove ENFORCEMENT from a signed-in client (stronger, optional)
 
-Route A shows the rule is deployed; this shows the backend enforces it. The
-console cannot use the SDK, so go through the RTDB REST API with the signed-in
-user's own ID token. Firebase Auth persists that token in **IndexedDB**
-(`firebaseLocalStorageDb`), which the console *can* read.
-
-**Reload the page first** — an ID token lives about an hour, and an expired one
-makes all three writes fail identically, which would look like a pass.
+Route A shows the rule is deployed; this shows the backend enforces it. Uses the
+**D0 harness** above.
 
 ```js
-// 1. lift the signed-in user's uid and ID token out of IndexedDB
-const rec = await new Promise((resolve, reject) => {
-  const open = indexedDB.open('firebaseLocalStorageDb');
-  open.onerror = () => reject(open.error);
-  open.onsuccess = () => {
-    const all = open.result.transaction('firebaseLocalStorage', 'readonly')
-      .objectStore('firebaseLocalStorage').getAll();
-    all.onerror = () => reject(all.error);
-    all.onsuccess = () => resolve(all.result.find(r => String(r.fbase_key).startsWith('firebase:authUser:')));
-  };
-});
-const uid = rec.value.uid, idToken = rec.value.stsTokenManager.accessToken;
-console.log(uid, 'token expires', new Date(rec.value.stsTokenManager.expirationTime));
-
-// 2. the database URL — must match your project/region
-const DB = 'https://<project>-default-rtdb.<region>.firebasedatabase.app';
-const url = `${DB}/users/${uid}/presence/code.json?auth=${idToken}`;
-const put = async (v) => {
-  const r = await fetch(url, { method: 'PUT', body: JSON.stringify(v) });
-  return `${JSON.stringify(v)} -> ${r.status} ${await r.text()}`;
-};
-
-// 3. read the CURRENT code first — it doubles as the control below
-const current = await (await fetch(url)).json();
+const url = `users/${UID}/presence/code`;
+const current = await rtdb(url);          // read FIRST — it is the control
 console.log('current', current);
 
-console.log(await put('/'));       // expect 401 Permission denied
-console.log(await put('abc'));     // expect 401 Permission denied (lowercase)
-console.log(await put(current));   // expect 200 — the control, and a NO-OP
+console.log(await rtdb(url, 'PUT', '/'));       // expect 401 Permission denied
+console.log(await rtdb(url, 'PUT', 'abc'));     // expect 401 (lowercase)
+console.log(await rtdb(url, 'PUT', current));   // expect 200 — control, and a NO-OP
 ```
 
 **Expect** `401 {"error":"Permission denied"}` for the first two and `200` for
@@ -1134,26 +1165,40 @@ That is exactly why the control writes back what was already there.
 
 ### D2. G6 — a follow entry may only name an account that exists
 
-```js
-// as signed-in user M, on DEV
-await firebase.database().ref(`userPrefs/${M}/following/doesnotexist123`).set({ /* … */ });
-```
+Uses the **D0 harness**. Write at all three depths — the guard is three rules,
+and `$field` alone closed only the middle one.
 
-**Expect** `PERMISSION_DENIED`. Three rules carry this, and it is worth writing a
-value at each depth rather than only the first:
+```js
+const DEAD = `doesnotexist${Date.now()}`;
+console.log(await rtdb(`userPrefs/${UID}/following/${DEAD}`,       'PUT', { code: 'ZZZZZZ', label: 'x' }));
+console.log(await rtdb(`userPrefs/${UID}/following/${DEAD}/label`, 'PUT', 'x'));
+console.log(await rtdb(`userPrefs/${UID}/following/${DEAD}/a/b`,   'PUT', 1));
+```
 
 | Path | Rule | Expect |
 |---|---|---|
-| `userPrefs/{M}/following/{dangling}` | `.validate` at `database.rules.json:10` — `users/$followee/presence/code` must exist | denied |
-| `userPrefs/{M}/following/{dangling}/label` | `$field`, same predicate, `:12` | denied |
-| `userPrefs/{M}/following/{dangling}/a/b` | `$sub`, `.validate: false`, `:13` | denied |
+| `userPrefs/{me}/following/{dead}` | `.validate` at `database.rules.json:10` — `users/$followee/presence/code` must exist | `401 Permission denied` |
+| `…/{dead}/label` | `$field`, same predicate, `:12` | `401 Permission denied` |
+| `…/{dead}/a/b` | `$sub`, `.validate: false`, `:13` | `401 Permission denied` |
 
-The `$field` copy alone closed only the middle one; `$sub` (`e2dde4e`) is what
+The `$field` copy alone closed only the middle row; `$sub` (`e2dde4e`) is what
 refuses a write two levels below a following entry.
 
-Then the positive case: follow a **real** account normally through the UI and
-confirm it still works. A guard that refuses valid follows is the failure mode
-that matters more.
+**The control — a follow the rule must ACCEPT.** Write an existing following
+entry back unchanged; it mutates nothing, and it fails if the guard is refusing
+valid follows, which is the more damaging direction:
+
+```js
+const following = await rtdb(`userPrefs/${UID}/following`);
+const live = Object.keys(following || {})[0];
+console.log(live
+  ? await rtdb(`userPrefs/${UID}/following/${live}`, 'PUT', following[live])   // expect 200
+  : 'NO FOLLOWEES — follow a real account through the UI instead, as the control');
+```
+
+⚠️ **If all four lines refuse**, the token is stale or `DB` is wrong — re-run D0
+after reloading. ⚠️ **If D1 Route A showed rules older than `545dadf`**, this
+step cannot pass: the G6 `.validate` ships in the same file.
 
 ### D3. G6 — the client gate stops the republish
 
@@ -1307,7 +1352,7 @@ row, and a row that owes something says so.
 | C4 | M8 adopted merge (say which variant was run) | **PASS — OBSERVED 2026-08-05, FULL variant (ticked)** | **56 of 57**, sole owed claim `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName` — want `"S in GB"`, got `"L in GB"`. That is M8 adopting the loser's name (working) and M13's false failure (expected), exactly as derived. Nothing else owed. |
 | C5 | M4 rethrow on a real fs; nothing written | **PASS — OBSERVED 2026-08-05, both halves** | **Refusal:** `EACCES` on the pre-image write, rethrown after one attempt (M4's branch on real hardware for the first time), `smk-c4v1-follower` still fully present. **Control:** after a `chmod 700` that actually ran, the same purge proceeded and the account was purged — so the refusal was the permission, not a broken panel. The directory being verifiably `dr-x------` at the OS level is independent corroboration. |
 | C6 | SEC-1 `codeIndex` ownership on purge and merge | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; the victim's `codeIndex` entry survived a purge and a merge of the account that had planted their code. Per-step output not captured here. |
-| D1 | SEC-1 charset rule live on dev | | |
+| D1 | SEC-1 charset rule live on dev | **PASS — OBSERVED 2026-08-05, both routes** | **Route A**: deployed `/.settings/rules.json` carries the SEC-1 charset, so the dev project runs rules at or after `545dadf`. **Route B**: enforcement confirmed from a signed-in client over the REST API, including the write-back control that rules out a stale token. |
 | D2 | G6 `.validate` refuses a dangling followee | | |
 | D3 | G6 client gate stops the republish | | |
 | D4 | G9 rotate drops the dead followee | | |
