@@ -14,8 +14,10 @@
 // should not need a database connection to be caught) and the only part of
 // these CLIs a test can reach.
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fixtureGids } from '../ops/merge-fixture.js';
 
 const OPS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ops');
 
@@ -76,5 +78,43 @@ describe('verify-merge --mapping-shape', () => {
     expect(code).not.toBe(0);
     expect(out).toContain('nonsense');
     expect(out).not.toContain('GOOGLE_APPLICATION_CREDENTIALS_JSON');
+  });
+});
+
+// --- M13 -------------------------------------------------------------------
+// The read-back has to be told whether the operator ticked the shared group's
+// adoption in the preview, or it reports a false failure on that one claim.
+// `--adopt` is the fourth flag on this CLI and the flag surface is already what
+// operators get wrong, so it gets the same pre-credential discipline as
+// --mapping-shape: a plausible mistyping is refused by name rather than
+// silently ignored.
+describe('verify-merge --adopt', () => {
+  test('a value after --adopt is refused — the neighbouring flags all take one, this does not', () => {
+    const { GB } = fixtureGids('cli1');
+    const { code, out } = run('verify-merge.js', [...BASE, '--adopt', GB]);
+    expect(code).not.toBe(0);
+    expect(out).toContain('--adopt');
+    expect(out).toContain(GB);
+    expect(out).not.toContain('GOOGLE_APPLICATION_CREDENTIALS_JSON');
+  });
+
+  test('--adopt alone is accepted, and gets as far as the credential', () => {
+    const { code, out } = run('verify-merge.js', [...BASE, '--adopt']);
+    expect(code).not.toBe(0);
+    // The refusal it reaches is the MISSING CREDENTIAL, not a bad argument:
+    // that is how far a container with no service account can drive this.
+    expect(out).toContain('GOOGLE_APPLICATION_CREDENTIALS_JSON');
+  });
+
+  // What the two cases above cannot reach: whether the accepted flag is
+  // actually handed to buildMergeAssertions. That needs a credential, and no
+  // session container has ever held one. So the seam is pinned at the source —
+  // naming the CALL, not the symbol, because a flag parsed and dropped on the
+  // floor is exactly M8's shape (a control the page defined and never sent).
+  test('the parsed flag reaches the claim builder rather than being parsed and dropped', () => {
+    const src = readFileSync(path.join(OPS, 'verify-merge.js'), 'utf8');
+    const call = src.match(/buildMergeAssertions\(\{[^}]*\}\)/);
+    expect(call).not.toBeNull();
+    expect(call[0]).toContain('adopt');
   });
 });

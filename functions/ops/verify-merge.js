@@ -22,10 +22,16 @@
 //   cd functions
 //   GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)" \
 //   node ops/verify-merge.js --project <dev-id> --prod-project <prod-id> \
-//     --tag run1 [--telegram] [--repoint]
+//     --tag run1 [--telegram] [--repoint] [--adopt]
 //
 // --telegram if the fixture was seeded with a Telegram mapping; add --repoint
 // if the merge was run as "link via merge" rather than as a plain merge.
+//
+// --adopt if you TICKED the shared group's adoption in the merge preview. The
+// tick has existed since M8 (17945c3) and this read-back assumed it could not,
+// so an adopted merge reported a false failure on that one claim (M13,
+// reproduced on the dev project 2026-08-05). The flag describes what you did at
+// EXECUTE time, unlike --mapping-shape, which describes how you SEEDED.
 //
 // Exits non-zero when anything is owed, so it can gate a script.
 //
@@ -58,6 +64,7 @@ async function main() {
   const telegram = argv.includes('--telegram');
   const repoint = argv.includes('--repoint');
   const mappingShape = flag(argv, '--mapping-shape') || 'loser';
+  const adopt = argv.includes('--adopt');
 
   if (!projectId) throw new Error('need --project <firebase-project-id>');
   if (!/^[a-z0-9]{1,16}$/.test(tag)) throw new Error('need --tag <the tag the fixture was seeded with>');
@@ -65,6 +72,14 @@ async function main() {
   // and reading them back against a different one is the cry-wolf failure
   // (2dec78c) rather than a discovery.
   assertMappingShape({ mappingShape, telegram, repoint });
+  // --adopt is a boolean, and its neighbours (--tag, --mapping-shape) are not,
+  // so a gid after it is a plausible mistake. Silently ignoring it would leave
+  // the operator reading the UN-adopted claims while believing otherwise —
+  // the exact false failure M13 exists to end.
+  const adoptValue = adopt ? argv[argv.indexOf('--adopt') + 1] : undefined;
+  if (adoptValue && !adoptValue.startsWith('--')) {
+    throw new Error(`--adopt takes no value (got "${adoptValue}") — the fixture has exactly one colliding group, so this is a flag, not a list. Pass --adopt if you ticked that group's adoption in the preview; leave it off if you did not.`);
+  }
 
   // This one only READS, so the gate is a warning rather than a refusal —
   // reading production to check a dev merge is pointless, not dangerous.
@@ -83,10 +98,10 @@ async function main() {
 
   const { deps } = makeOpsDeps({ projectId, saJson, databaseURL });
   const { L, S } = fixtureUids(tag);
-  const assertions = buildMergeAssertions({ tag, telegram, repoint, mappingShape });
+  const assertions = buildMergeAssertions({ tag, telegram, repoint, mappingShape, adopt });
 
   console.log(`\nmerge ${L} → ${S}`);
-  console.log(`project=${projectId} tag=${tag}${telegram ? (repoint ? ' variant=link-via-merge' : ` variant=plain+telegram mapping-shape=${mappingShape}`) : ''}`);
+  console.log(`project=${projectId} tag=${tag}${telegram ? (repoint ? ' variant=link-via-merge' : ` variant=plain+telegram mapping-shape=${mappingShape}`) : ''} adopt=${adopt ? 'yes' : 'no'}`);
   console.log(`checking ${assertions.length} claim(s)\n`);
 
   // Every path is read live and independently. Canvas nodes are read as named
@@ -119,7 +134,12 @@ async function main() {
 
   console.log(`\n${failed.length} OF ${assertions.length} CLAIM(S) OWED:`);
   for (const f of failed) console.log(`  ✗ ${f}`);
-  console.log('\nBefore reading these as merge defects, rule out the two known causes:');
+  console.log('\nBefore reading these as merge defects, rule out the known causes:');
+  if (!adopt) {
+    console.log('  • the shared group\'s adoption tick — if the ONLY owed claim is that group\'s displayName');
+    console.log('    and the value it got is the LOSER\'s per-group name, the merge is correct and this run');
+    console.log('    was told the wrong thing: re-run with --adopt (M13).');
+  }
   console.log('  • G3 — a client that was open at merge time republishes its cache for up to an hour.');
   console.log('    Nothing here is app-born, so this should be impossible; if it is not, say which client existed.');
   console.log('  • a stale canvas-key list — the panel takes it from the snapshot, not the live re-read, so');

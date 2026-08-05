@@ -8,8 +8,9 @@
 // branches, push tokens both sides, an invite token, and one durable-mailbox
 // collision. Hand-seeding that through the app is slow and gets it subtly wrong
 // — the first attempt at writing it down produced a seed with no per-group name
-// carry at all, because the only shared group's name is discarded (panel.html
-// never sends adoptGroupNames).
+// carry at all, because the only shared group's name is discarded unless the
+// preview's adoption tick is ticked (M8, 17945c3 — and M13 for why the
+// read-back has to be told which way it was run).
 //
 // So the fixture is DERIVED and the assertions are pinned against the REAL
 // buildMergePlan below, not against hand-written expectations. That is the
@@ -99,6 +100,7 @@ async function runMerge(opts = {}) {
     survivorUid: fixture.uids.S,
     canvasKeys: fixtureCanvasKeys({ tag: TAG, ...opts }),
     telegramRepoint: Boolean(opts.repoint),
+    adoptGroupNames: opts.adoptGroupNames || [],
     now: NOW,
   });
   await applyMergePlan(deps, plan);
@@ -164,7 +166,7 @@ describe('the seed drives every branch the merge leg exists to observe', () => {
     expect(live(`groups/${GA}/members/${fixture.uids.L}`)).toBeNull();
   });
 
-  test('the shared group raises a collision and KEEPS the survivor name — adoptGroupNames has no UI', async () => {
+  test('the shared group raises a collision and KEEPS the survivor name when nothing is adopted', async () => {
     const { fixture, plan, live } = await runMerge();
     const { GB } = fixtureGids(TAG);
     const collision = plan.conflicts.find((c) => c.kind === 'group-member-collision');
@@ -510,6 +512,55 @@ describe('buildMergeAssertions matches what the merge actually leaves behind', (
     for (const a of buildMergeAssertions({ tag: TAG, telegram: true, repoint: true })) {
       expect(checkAssertion(a, repointRun.live(a.path))).toMatchObject({ ok: true });
     }
+  });
+
+  // --- M13: the read-back has to know whether the operator ticked -----------
+  // Before M8 (17945c3) the panel could not send adoptGroupNames at all, so the
+  // shared group's claim could safely be hard-coded to the survivor's name. It
+  // can now, and a merge run WITH the tick reported 1 of 57 owed on the dev
+  // project (2026-08-05) — a FALSE failure on the leg whose whole job is
+  // telling real residue from noise.
+  test('a merge with the shared group ADOPTED matches the adoption-aware assertions', async () => {
+    const { GB } = fixtureGids(TAG);
+    const { live } = await runMerge({ adoptGroupNames: [GB] });
+    const failures = [];
+    for (const a of buildMergeAssertions({ tag: TAG, adopt: true })) {
+      const res = checkAssertion(a, live(a.path));
+      if (!res.ok) failures.push(`${a.path}: ${res.detail}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  // The count of ONE is the load-bearing half of the live observation: it shows
+  // the tick moves precisely the record it should and nothing else, which is
+  // what tells M13 apart from a merge defect.
+  test('adoption changes exactly one claim — the shared group displayName, and nothing else', () => {
+    const { S } = fixtureUids(TAG);
+    const { GB } = fixtureGids(TAG);
+    const plain = buildMergeAssertions({ tag: TAG });
+    const adopted = buildMergeAssertions({ tag: TAG, adopt: true });
+    expect(adopted.map((a) => a.path)).toEqual(plain.map((a) => a.path));
+    const differing = plain
+      .filter((a, i) => JSON.stringify(a.value) !== JSON.stringify(adopted[i].value))
+      .map((a) => a.path);
+    expect(differing).toEqual([`groups/${GB}/members/${S}/displayName`]);
+    expect(plain.find((a) => a.path === differing[0]).value).toBe('S in GB');
+    expect(adopted.find((a) => a.path === differing[0]).value).toBe('L in GB');
+  });
+
+  // The stale half is the RATIONALE as much as the value: a reader who checks
+  // why the claim is what it is was being told the panel cannot do something it
+  // has done since 2026-08-03.
+  test('no claim still explains itself by saying the panel cannot adopt', () => {
+    const stale = /(never sends|sends no) adoptGroupNames/;
+    for (const a of [...buildMergeAssertions({ tag: TAG }), ...buildMergeAssertions({ tag: TAG, adopt: true })]) {
+      expect(a.why).not.toMatch(stale);
+    }
+    expect(fixtureNotes().join(' ')).not.toMatch(stale);
+  });
+
+  test('the seed notes tell the operator which way to verify a tick', () => {
+    expect(fixtureNotes().join(' ')).toContain('--adopt');
   });
 
   test('every assertion carries a reason, so a red line says what was owed', () => {

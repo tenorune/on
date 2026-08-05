@@ -6,10 +6,15 @@
 // the merge is not trivial, and seeding that by hand through the app is both
 // slow and easy to get subtly wrong. The first written-down version of the seed
 // produced NO per-group displayName carry at all: its only shared group hits
-// merge.js's collision branch, whose resolution is "survivor's record kept" —
-// and the loser's name is adopted only via `adoptGroupNames`, which server.js
-// accepts but panel.html never sends. A group the loser is in and the survivor
-// is NOT is what actually carries a per-group name (merge.js:220-221).
+// merge.js's collision branch, whose resolution is "survivor's record kept"
+// unless the loser's name is adopted via `adoptGroupNames`. A group the loser
+// is in and the survivor is NOT is what carries a per-group name
+// UNCONDITIONALLY (merge.js:220-221), which is why the fixture has both.
+//
+// ⚠️ `adoptGroupNames` was unreachable from the browser when that was written,
+// and has been a per-group tick in the preview since M8 (17945c3) — so the
+// read-back takes an `adopt` argument rather than assuming the tick is off
+// (M13). Read `buildMergeAssertions`' own note before changing it.
 //
 // PURE ON PURPOSE. Everything here is a value: a flat write-set, a list of
 // assertions, and one verdict function. The live wiring is in
@@ -376,7 +381,7 @@ export function fixtureNotes({ mappingShape = 'loser' } = {}) {
     'Accounts are SYNTHETIC and no client ever holds them, so G3 and G6 have no author on this leg.',
     'Expect exactly one integrity finding per seeded uid: auth-missing, severity INFO (an RTDB user with no Auth record).',
     'Expect NO integrity errors or warnings before the merge — the seed is self-consistent. Anything after it is the merge.',
-    'panel.html never sends adoptGroupNames, so the shared group resolves "survivor\'s record kept". The per-group name carry comes from the loser-ONLY group.',
+    'The shared group is a COLLISION. Leave its tick alone and it resolves "survivor\'s record kept"; TICK it (M8) and the loser\'s per-group name is adopted — then verify with `ops/verify-merge.js --adopt`, or that one claim reports a FALSE failure (M13). The unconditional per-group name carry comes from the loser-ONLY group either way.',
     'ops/restore-preimage.js is purge-shaped (it assumes every dumped path was NULLED) — do not read a merge dump with it. Verify with ops/verify-merge.js.',
   ];
 }
@@ -431,10 +436,17 @@ export function buildFixtureCleanup({ tag }) {
  * whether the forward mapping is claimed gone or claimed still standing, and
  * reading one back against the other is the cry-wolf failure (2dec78c), not a
  * discovery.
- * @param {{ tag: string, telegram?: boolean, repoint?: boolean, mappingShape?: string }} opts
+ *
+ * `adopt` must match what the operator TICKED at execute time, and it is the
+ * same kind of argument for the same reason (M13). The shared group is the
+ * fixture's only collision, so one boolean covers it: false claims the
+ * survivor's per-group name, true claims the loser's. Passing the wrong one
+ * reports a false failure on exactly that claim — which is what happened on
+ * the dev project on 2026-08-05, before this option existed.
+ * @param {{ tag: string, telegram?: boolean, repoint?: boolean, mappingShape?: string, adopt?: boolean }} opts
  * @returns {Assertion[]}
  */
-export function buildMergeAssertions({ tag, telegram = false, repoint = false, mappingShape = 'loser' }) {
+export function buildMergeAssertions({ tag, telegram = false, repoint = false, mappingShape = 'loser', adopt = false }) {
   const shape = assertMappingShape({ mappingShape, telegram, repoint });
   const { L, S, P1, P2, F1, C1 } = fixtureUids(tag);
   const { GA, GB, GC, GD } = fixtureGids(tag);
@@ -466,7 +478,14 @@ export function buildMergeAssertions({ tag, telegram = false, repoint = false, m
   add(`groups/${GA}/members/${S}`, 'equals', "the loser-only group carries its WHOLE member record — this is the per-group displayName carry", { displayName: 'L in GA', role: 'member' });
   add(`groups/${GA}/members/${L}`, 'gone', 'the loser membership is nulled by the shared enumerator');
   add(`users/${S}/groups/${GA}`, 'present', 'the enumeration entry carries, or the group is invisible in the survivor nav');
-  add(`groups/${GB}/members/${S}/displayName`, 'equals', "the shared group is a collision and the survivor's record wins — panel.html sends no adoptGroupNames", 'S in GB');
+  add(
+    `groups/${GB}/members/${S}/displayName`,
+    'equals',
+    adopt
+      ? "the shared group is a collision and the preview's tick ADOPTED the loser's per-group name (M8)"
+      : "the shared group is a collision and, with its tick left alone, the survivor's record wins",
+    adopt ? 'L in GB' : 'S in GB',
+  );
   add(`groups/${GB}/members/${L}`, 'gone', 'the loser membership in the shared group is nulled');
   add(`users/${S}/groups/${GB}`, 'present', "the loser's visit was the more recent, so its enumeration entry wins");
   add(`groups/${GC}/ownerId`, 'equals', 'ownership of a group the loser OWNED follows to the survivor', S);
