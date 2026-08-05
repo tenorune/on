@@ -392,16 +392,23 @@ Recorded for context; **no action owed**. Closed on
   `Mon, 03 Aug 2026 11:17:32 GMT` → `Tue, 04 Aug 2026 20:37:13 GMT`. That field
   is the *only* observable `revokeRefreshTokens` has, so this is the direct
   sighting the entry said it lacked.
-  **Still UNOBSERVED, and do not read the above as covering them:**
-  (a) **`link/production/execute`** — a different route revoking a different
-  uid (`derivedUid`); it inherits nothing from the merge run, and the two took
-  independent code paths onto `endSession` even though they share it now;
-  (b) that no other revoking operation ran between the loser's two reads.
-  **The survivor-unchanged half IS now observed** (same run): the survivor was
+  **The survivor-unchanged half is observed too** (same run): the survivor was
   read after the merge and its `tokensValidAfterTime` predates the merge, so it
   was never revoked. One read settles that side — a revoke can only move the
   field forward to at least the instant it happened, so a post-merge value
   *older* than the merge is already proof of absence.
+  **`link/production/execute` is now observed as well (2026-08-05, step C2)**,
+  and it needed its own run: it is a different route revoking a different uid
+  (`derivedUid`), reaching `endSession` by an independent path. The derived
+  account `64b7c129…928c` advanced `Mon, 03 Aug 2026 10:09:56 GMT` →
+  `Wed, 05 Aug 2026 19:49:09 GMT`, while the phrase account `c45849d7…d04b`
+  read `Mon, 03 Aug 2026 10:23:25 GMT` afterwards — predating the link, so
+  untouched. The phrase side is stronger than "unchanged": its
+  `lastRefreshTime` was 7½ minutes before the revoke, so a **demonstrably
+  live** session survived the operation.
+  **So SEC-6 is exercised live on both routes and both sides.** One caveat
+  remains, and it is small: nothing independently confirms that no *other*
+  revoking operation ran between a given pair of reads.
   **What this does NOT show, and never could:** that the revoke *evicts*
   anything. It does not — an issued ID token stays valid until it expires
   because the rules never check `auth.token.auth_time`. That is G3/#302, parked.

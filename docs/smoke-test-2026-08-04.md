@@ -1,17 +1,17 @@
 # Smoke test — the followup queue + the security audit (2026-08-04)
 
-**Status (2026-08-04): PARTS A AND B PASS. C, D and E are UNRUN.**
+**Status (2026-08-05): PARTS A AND B PASS. PART C IS HALF DONE. D AND E UNRUN.**
 
 - **Part A** — A0–A5 exercised in a session container on a fake credential;
   **A6** run on the operator machine, and it is the only one that needed to be.
 - **Part B** — all five run by the operator against the dev project. That is the
   first time G4's cascade block and M8's adopt tick have been seen in a browser
   against live data rather than canned responses.
-- **Part C — C1b PASSES.** SEC-6's revoke has been observed against real
-  Firebase Auth on the **merge** route: `tokensValidAfterTime` advanced across
-  the merge. That is the item its own roadmap entry marked UNVERIFIED-LIVE, and
-  it is the first live sighting. The rest of Part C — C1a, C2, C3, C4, C5, C6 —
-  is unrun.
+- **Part C — C1a, C1b and C2 PASS; C3, C4, C5 and C6 are unrun.**
+  **SEC-6 is now fully exercised live, on both routes and both sides**: the
+  account being removed is revoked (merge 2026-08-04, link-as-production
+  2026-08-05) and the one that survives is not. That is the item its own roadmap
+  entry marked UNVERIFIED-LIVE.
 - **Parts D and E have never been run at all.**
 
 Nothing is a passing row until the results table at the bottom says so.
@@ -50,7 +50,7 @@ live run can tell you that the suite has not already settled.
 | **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest | nothing logically; confirms your build serves it | A2 |
 | **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe | that no shipped caller regressed — a **regression** check, not a positive one | E1 |
 | **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore` | that dumps land there from *your* launch directory | A5 |
-| **SEC-6** | `endSession` on merge + link-as-production | jest + headless Chromium on canned routes; **merge route OBSERVED LIVE, both sides (2026-08-04)** | only the revoke on **link-as-production**, still unobserved | C1, C2 |
+| **SEC-6** | `endSession` on merge + link-as-production | **OBSERVED LIVE on BOTH routes, both sides** — merge 2026-08-04, link-as-production 2026-08-05 | nothing further; the item is fully exercised | C1, C2 |
 | **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium | that a real browser runs the panel under the nonce | A3, B0 |
 | **SEC-8** | docs only — "G3" kept on the merge leg | n/a | nothing to run | — |
 | **G4** | purge preview names predicted cascades | jest | **the block has never been rendered in a browser** | B1, C3 |
@@ -743,6 +743,33 @@ This route destroys the derived account exactly as production's `performLink`
 does. Use "link via merge" instead whenever the impact verdict is lossy — that is
 what the preview's verdict line is for.
 
+**OBSERVED 2026-08-05 — SEC-6's revoke on the SECOND route.** Both rows met:
+
+```
+derived  64b7c129152d3bf511d595c55faf928c   providerCount: 0
+  before  tokensValidAfterTime  Mon, 03 Aug 2026 10:09:56 GMT  (1785751796)
+  after   tokensValidAfterTime  Wed, 05 Aug 2026 19:49:09 GMT  (1785959349)
+                                                        +207,553 s — ADVANCED
+
+phrase   c45849d73f37c3252a27a8f2a37ad04b   providerCount: 0
+  after   tokensValidAfterTime  Mon, 03 Aug 2026 10:23:25 GMT  (1785752605)
+                                          predates the link — NEVER REVOKED
+```
+
+**The phrase side is stronger here than a bare "unchanged".** Its
+`lastRefreshTime` is `Wed, 05 Aug 2026 19:41:36 GMT` — about **7½ minutes
+before** the link's revoke — so that account had a client actively refreshing
+tokens across the operation and **kept its session anyway**. This is not merely
+"the route did not touch it"; it is "the route did not touch a session that was
+demonstrably live."
+
+**Incidental, and worth reading before C3:** the derived account's
+`lastRefreshTime` is `Tue, 04 Aug 2026 18:55:12 GMT`, ~25 h before the link — so
+its ID token had long since expired and there was no G3 window to speak of on
+this run. `lastRefreshTime` is a proxy for "a client was recently alive", not
+proof of one, but a 25-hour-old refresh against a ~1 h token lifetime is about as
+clear as that proxy gets.
+
 ### C3. G4 — the cascade survives preview-to-execute
 
 Purge `smk-g4v1-loser` (the group owner from B1) for real, having read its
@@ -1049,9 +1076,9 @@ row, and a row that owes something says so.
 | B2 | M8 tick appears and re-previews | **PASS — OBSERVED 2026-08-04** | first time the tick has driven a live preview rather than canned responses |
 | B3 | SEC-6 footnote on all four previews, right account named | **PASS — OBSERVED 2026-08-04** | |
 | B4 | merge/link preview uid refusal; integrity + canvases | **PASS — OBSERVED 2026-08-04** | closes A4's deferred ordering case on a real project |
-| C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | | |
+| C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
 | C1b | SEC-6 merge: `tokensValidAfterTime` advances | **PASS — OBSERVED 2026-08-04, both rows** | **Loser** `d92925e1…e71c` (`providerCount: 0`): `Mon 03 Aug 11:17:32 GMT` → `Tue 04 Aug 20:37:13 GMT`, +119,981 s. **Survivor**: read post-merge, timestamp predates the merge → never revoked (one read suffices; a revoke only moves the field forward). **First live sighting of SEC-6's revoke**, which was UNVERIFIED-LIVE in its own roadmap entry. ⚠️ Residual assumption: that no other revoking operation ran between the loser's two reads. |
-| C2 | SEC-6 link-as-production revokes the derived account only | | |
+| C2 | SEC-6 link-as-production revokes the derived account only | **PASS — OBSERVED 2026-08-05, both rows** | **Derived** `64b7c129…928c`: `03 Aug 10:09:56` → `05 Aug 19:49:09 GMT`, +207,553 s. **Phrase** `c45849d7…d04b`: post-link value `03 Aug 10:23:25 GMT`, predates the link → never revoked, *and* its `lastRefreshTime` is 7½ min before the revoke, so a demonstrably live session survived. Completes SEC-6 across **both** routes. |
 | C3 | G4 cascade agrees preview→execute; enumeration entry survives | | |
 | C4 | M8 adopted merge (say which variant was run) | | ⚠️ read C4's warning first |
 | C5 | M4 rethrow on a real fs; nothing written | | |
