@@ -1,6 +1,7 @@
 # Smoke test — the followup queue + the security audit (2026-08-04)
 
-**Status (2026-08-05): PARTS A, B AND C ALL PASS. D AND E UNRUN.**
+**Status (2026-08-05): EVERY STEP HAS RUN. A, B, C and E pass; D passes except
+D5a, which is partial by nature — see its row.**
 
 - **Part A** — A0–A5 exercised in a session container on a fake credential;
   **A6** run on the operator machine, and it is the only one that needed to be.
@@ -17,7 +18,9 @@
   headline result is D5b: RTDB's all-or-nothing multi-path behaviour, which both
   G10 and M11 rest on, is confirmed on the real project rather than only in the
   rules emulator.
-- **Part E has never been run.**
+- **Part E — E1 PASSES.** `performLink`, graduation and expunge all run clean
+  on dev with no `rootUpdate` error, which is the only claim a live run can make
+  for SEC-4.
 
 Nothing is a passing row until the results table at the bottom says so.
 
@@ -59,7 +62,7 @@ live run can tell you that the suite has not already settled.
 | **SEC-1** | `presence/code` charset rule; three admin sinks check `codeIndex` ownership | rules emulator + store mock; **ownership check OBSERVED on live data 2026-08-05 (C6)** | only that the charset rule is really deployed on dev | D1 |
 | **SEC-2** | `requireUid`/`assertUid` at the edge and in the builders | jest (105 cases); **every refusal exercised over HTTP 2026-08-04, incl. the two ordering cases on a real project (B4)** | nothing further | A4, B4 |
 | **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest; **12 probes run 2026-08-04** | nothing further | A2 |
-| **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe | that no shipped caller regressed — a **regression** check, not a positive one | E1 |
+| **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe; **all three callers exercised live 2026-08-05, no regression** | nothing further — no positive test is reachable from outside | E1 |
 | **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore`; **both halves run 2026-08-04** | nothing further | A5 |
 | **SEC-6** | `endSession` on merge + link-as-production | **OBSERVED LIVE on BOTH routes, both sides** — merge 2026-08-04, link-as-production 2026-08-05 | nothing further; the item is fully exercised | C1, C2 |
 | **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium; **headers checked and the panel driven in a real browser 2026-08-04/05** | nothing further | A3, B0 |
@@ -1473,6 +1476,31 @@ Exercise the callers and confirm they still work:
 `rootUpdate: '<key>' has an empty segment` or `names the database ROOT` error in
 the functions logs.
 
+**OBSERVED 2026-08-05 — no regression.** `performLink`, graduation and expunge
+all completed normally, with no `rootUpdate` error in the functions logs. That
+is the whole claim E1 can make.
+
+⚠️ **One artifact seen during the run, and it is EXPECTED — not a SEC-4
+regression and not a defect.** After an expunge, the freshly re-bootstrapped
+Telegram account's **`created`** column in the panel read `2d 12h ago` rather
+than "just now".
+
+The column is the **Firebase Auth record's** creation time, not an RTDB value:
+`ops/project.js:63` reads `authByUid.get(uid)?.createdAt`, which `ops/deps.js`
+fills from `auth.listUsers` as `Date.parse(u.metadata.creationTime)`. An expunge
+clears **RTDB only** — it never deletes the Auth record, and neither does
+`link/production/execute`; only *purge* does, and only with the opt-in box. The
+Telegram uid is deterministic (`deriveTelegramUid`), so the next Mini App open
+mints a fresh custom token for the **same uid** and Firebase Auth reuses the
+**existing** record, whose `creationTime` is the original first sign-in.
+
+So the column is accurate about what it measures, and the account's *data* is
+seconds old while the column says days. Same family as the artifact step 9 of
+`docs/operator-panel-smoke-test.md` records — the recreated record also loses its
+`tg-<uid>@telegram.invalid` identifier. Both are "the Auth record survived and
+carries stale marks". To see a genuinely fresh `created`, the Auth record has to
+be deleted (purge with the box ticked), which is the only route that retires it.
+
 A positive test — proving the refusal actually refuses — is not reachable from
 outside, because no caller can emit such a key: RTDB keys cannot contain `/`, and
 every interpolated value is a uid, gid, tgId or token. That property is pinned by
@@ -1553,4 +1581,4 @@ row, and a row that owes something says so.
 | D4 | G9 rotate drops the dead followee | **PASS — OBSERVED 2026-08-05** | reported verified by the operator |
 | D5b | M11 — atomic multi-path refusal on the live backend | **PASS — OBSERVED 2026-08-05** | Refused `401`, revocation survived as `true`, control landed `200` and cleared it. **Confirms RTDB's all-or-nothing behaviour on the real project**, previously emulator-only — the assumption both G10 and M11 rest on. |
 | D5a | G10 — a dangling invite is refused and writes nothing | **PARTIAL — OBSERVED 2026-08-05** | Redemption of a purged creator's invite **fails**. ⚠️ That is the `creator-missing` guard (`js/invites.ts:202`), **not** G10's reorder — the reorder only fires in a race and is not hand-reachable (see D5). Not yet confirmed: that `users/{C}` is entirely absent afterwards. |
-| E1 | SEC-4: performLink / graduation / expunge unaffected | | |
+| E1 | SEC-4: performLink / graduation / expunge unaffected | **PASS — OBSERVED 2026-08-05** | All three completed normally; no `rootUpdate` error in the functions logs. One expected artifact seen and explained in the step: after an expunge the re-bootstrapped account's `created` column reads days old, because that column is the **Auth record's** `creationTime` and an expunge never touches the Auth record. Not a regression. |
