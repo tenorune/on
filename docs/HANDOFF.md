@@ -112,7 +112,15 @@ MERGED TO `dev` AND PUSHED TWICE, at the operator's explicit instruction.**
 `a1d04e8` → the second merge (the live smoke-test steps, their two corrections,
 and the Part A–C result). Both are `--no-ff` merge commits matching `dev`'s own
 history; a fast-forward was available each time and deliberately not taken.
-**Every file in the second merge is under `docs/**` and rides no deploy.**
+
+⚠️ **BOTH PUSHES FIRED `deploy-dev.yml` AND BOTH SHIPPED NOTHING.** The runs at
+`a1d04e8` and `dca91e1` each completed **success** — CI deploys
+`hosting,database,functions` on every push to `dev` with no gate, so the
+workflow runs whatever the diff contains. The first merge is docs plus
+`functions/ops/**` (excluded from the functions archive) plus
+`functions/test/**`; **every file in the second is under `docs/**`**, which
+rides nothing. Verified by filename before each merge, not inferred. Do not
+generalise it to the next one.
 
 The first merge was cut from `origin/dev` at `59f1a51`, which had not moved when
 it was made. Four commits — `2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), and the
