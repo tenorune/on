@@ -122,7 +122,11 @@ out local `dev`.** Local `dev` is a shallow-clone artifact (see the landmine
 below) and merging into it would have produced garbage. `git push origin
 HEAD:dev` is the shape to reuse; local `dev` was left untouched.
 
-⚠️ **Nothing here would deploy if it were merged.** Every file is under
+⚠️ **That push fired `deploy-dev.yml` and it SHIPPED NOTHING.** Both halves
+matter. The run at `a1d04e8` completed **success** (2026-08-05T23:19Z), because
+CI deploys `hosting,database,functions` on every push to `dev` with no gate —
+but every file in the merge is docs, `functions/ops/**` or `functions/test/**`.
+Every file is under
 `functions/ops/**` (excluded from the functions archive via `functions.ignore`),
 `functions/test/**`, or `docs/**`. `database.rules.json`, `js/`, `.github/` and
 the shipped `functions/*.js` are untouched — verified by filename before
@@ -707,6 +711,15 @@ never been passed to a real run (the seam beyond the call site is pinned by a
 source assertion, and the test says so); the upper-cased codes have never been
 seeded; and the renamed column has not been RENDERED, only asserted in the
 markup, since `panel.html` has no DOM harness.
+
+**Live steps for all three are written and NOT RUN:**
+`docs/smoke-test-2026-08-05-m13-m15.md`. Parts B and C are the pair that matters
+— an adopted merge read back **with** `--adopt` (57/57) and **without** it
+(exactly 1 owed), then a plain merge read both ways with the values reversed.
+Either half alone would pass against a flag that does nothing. Part D's charset
+checks are live; its realism claim is **not hand-reachable** and the file says
+so rather than sending a session after it. Everything in that file is a
+prediction derived from the code at `a1d04e8`, not a result.
 
 **M14's one live precondition was met before the merge.** Whether a seeded
 fixture was live on dev was UNKNOWN from a session container — there is no
