@@ -7,7 +7,7 @@
 - **Part B** — all five run by the operator against the dev project. That is the
   first time G4's cascade block and M8's adopt tick have been seen in a browser
   against live data rather than canned responses.
-- **Part C — C1a, C1b and C2 PASS; C3, C4, C5 and C6 are unrun.**
+- **Part C — C1a, C1b, C2 and C3 PASS; C4, C5 and C6 are unrun.**
   **SEC-6 is now fully exercised live, on both routes and both sides**: the
   account being removed is revoked (merge 2026-08-04, link-as-production
   2026-08-05) and the one that survives is not. That is the item its own roadmap
@@ -775,6 +775,10 @@ clear as that proxy gets.
 Purge `smk-g4v1-loser` (the group owner from B1) for real, having read its
 cascade block.
 
+⚠️ **This CONSUMES the fixture's loser, so C3 is the last step that can use the
+B1 tag.** C4 needs `smk-{tag}-loser` alive as its merge loser and therefore
+seeds its own — do not carry `g4v1` forward into it.
+
 **Expect:**
 
 - the execute is **not** refused — the digest comparison includes `cascades`, so
@@ -795,7 +799,44 @@ To force the refusal side deliberately: preview, then add a member to the owned
 group in another window, then execute. **Expect** a refusal whose diff names a
 `+ cascade:` line.
 
-### C4. M8 — execute an adopted merge ⚠️ read the warning
+### C4. M8 — execute an adopted merge ⚠️ read all of this first
+
+**C4 SEEDS ITS OWN FIXTURE. Do not reuse B1/B2's.** C3 purges
+`smk-{tag}-loser`, which is exactly the account this step needs as its *loser*,
+so C3 and C4 cannot share a tag — the account is gone by the time you get here.
+Earlier drafts of this page did not say so and reused `g4v1` throughout; that
+was a defect in the document, not in the panel.
+
+```bash
+cd /path/to/on/functions
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag c4v1        # dry run
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag c4v1 --yes
+```
+
+Refresh the panel. Then, and **check the pair against this line before you
+press execute**:
+
+> click **`smk-c4v1-loser`** → **merge into…** → survivor **`smk-c4v1-survivor`**
+
+⚠️ **`verify-merge` only ever checks `smk-{tag}-loser` → `smk-{tag}-survivor`.**
+It derives the pair from `--tag`; there is no flag to point it anywhere else. So
+merging any other pair from this fixture — including one of the peers — produces
+a large, meaningless owed count against claims describing a merge that never
+happened. **A big number here is far more likely to be the wrong pair than a
+real defect.** Read the pair out of `.ops-audit/audit.jsonl` before diagnosing
+anything:
+
+```bash
+tail -1 .ops-audit/audit.jsonl | python3 -m json.tool
+```
+
+`uids` is `[loser, survivor]` (`ops/server.js`, the `execute('merge', …)` call).
+If it is not `["smk-c4v1-loser", "smk-c4v1-survivor"]`, the run is void — clean,
+re-seed on a new tag, and start again.
+
+Now the adoption itself.
 
 **⚠️ `ops/verify-merge.js` does not know about adoption, and will report a false
 failure if you tick.** Derived from the code on 2026-08-04, not from the docs:
@@ -817,12 +858,27 @@ So run C4 one of two ways, and say which in the results table:
 - **Safe (recommended):** exercise the tick in **preview only** (B2), then untick
   and execute unticked. `verify-merge` must report **57 of 57**.
 - **Full:** execute **with** the tick and expect **56 of 57**, with the single
-  failure being `groups/smg-*-shared/members/smk-*-survivor/displayName`. Confirm
-  by hand that the value is the loser's name — that is M8 working, not a merge
-  defect. Anything else failing is a real finding.
+  failure being `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName`.
+  Confirm by hand that the value is the **loser's** name (`L in GB`) — that is M8
+  working, not a merge defect. Anything else failing is a real finding.
+
+```bash
+node ops/verify-merge.js --project $DEV --prod-project $PROD --tag c4v1
+```
 
 Either way this is the first time `adoptGroupNames` has driven a **live** merge;
 M8's browser exercise ran against canned responses with no database behind it.
+
+**Clean up**, and run the integrity report afterwards:
+
+```bash
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag c4v1 --clean --yes
+```
+
+⚠️ `buildFixtureCleanup` derives its null-set assuming the survivor is
+`smk-{tag}-survivor`. If a merge on this fixture used any other survivor, paths
+the merge created under *that* account can fall outside what `--clean` nulls —
+so check integrity rather than assuming the tag is gone.
 
 **Filed as M13** in `docs/operator-panel-followups.md` (2026-08-04, unruled): the
 fixture claim and its rationale should either gain an `--adopt` mode or have the
@@ -1079,7 +1135,7 @@ row, and a row that owes something says so.
 | C1a | SEC-6 merge: `NO AUTH RECORD` note, merge not refused, 57/57 | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
 | C1b | SEC-6 merge: `tokensValidAfterTime` advances | **PASS — OBSERVED 2026-08-04, both rows** | **Loser** `d92925e1…e71c` (`providerCount: 0`): `Mon 03 Aug 11:17:32 GMT` → `Tue 04 Aug 20:37:13 GMT`, +119,981 s. **Survivor**: read post-merge, timestamp predates the merge → never revoked (one read suffices; a revoke only moves the field forward). **First live sighting of SEC-6's revoke**, which was UNVERIFIED-LIVE in its own roadmap entry. ⚠️ Residual assumption: that no other revoking operation ran between the loser's two reads. |
 | C2 | SEC-6 link-as-production revokes the derived account only | **PASS — OBSERVED 2026-08-05, both rows** | **Derived** `64b7c129…928c`: `03 Aug 10:09:56` → `05 Aug 19:49:09 GMT`, +207,553 s. **Phrase** `c45849d7…d04b`: post-link value `03 Aug 10:23:25 GMT`, predates the link → never revoked, *and* its `lastRefreshTime` is 7½ min before the revoke, so a demonstrably live session survived. Completes SEC-6 across **both** routes. |
-| C3 | G4 cascade agrees preview→execute; enumeration entry survives | | |
+| C3 | G4 cascade agrees preview→execute; enumeration entry survives | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
 | C4 | M8 adopted merge (say which variant was run) | | ⚠️ read C4's warning first |
 | C5 | M4 rethrow on a real fs; nothing written | | |
 | C6 | SEC-1 `codeIndex` ownership on purge and merge | | |
