@@ -1501,6 +1501,12 @@ seconds old while the column says days. Same family as the artifact step 9 of
 carries stale marks". To see a genuinely fresh `created`, the Auth record has to
 be deleted (purge with the box ticked), which is the only route that retires it.
 
+**Filed as M15** in `docs/operator-panel-followups.md` (2026-08-05, unruled) —
+the column is accurate about what it measures, but its label does not say what
+that is, in a tool whose next action is destructive. Note the entry prices the
+obvious "just show an RTDB-derived created too" at what it really costs: **no
+such field exists**, and adding one touches two deployed surfaces.
+
 A positive test — proving the refusal actually refuses — is not reachable from
 outside, because no caller can emit such a key: RTDB keys cannot contain `/`, and
 every interpolated value is a uid, gid, tgId or token. That property is pinned by
