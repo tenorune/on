@@ -1377,8 +1377,25 @@ not hold on the real backend**. That is a genuine finding, not a test error.
 
 **Step 6 — the control: the same update must land WHOLE when it is allowed.**
 
+⚠️ **Verify `LIVE` is a real account before using it.** The `PUT` below does
+**not** catch a bad value: the rules let `R` write *any* `$revoker` key under its
+own `revocations/{R}` node, so a placeholder, a typo or a dead uid all return
+`200` — and then the PATCH is refused for the same reason step 4 was, which
+looks like a failed control instead of a bad setup. This has already happened
+once. `presence` is readable by any signed-in user (`.read: "auth != null"`), so
+one line settles it:
+
 ```js
-globalThis.LIVE = '<the uid from prerequisite 2>';
+// R's OWN uid is the simplest valid choice: no lookup, no second account, and
+// the revocation watcher skips it (you do not follow yourself). Any existing
+// uid R does NOT already follow works equally well.
+globalThis.LIVE = UID;
+console.log(await rtdb(`users/${LIVE}/presence/code`));   // MUST print a code, not null
+```
+
+Only once that prints a code:
+
+```js
 console.log(await rtdb(`revocations/${UID}/${LIVE}`, 'PUT', true));   // expect 200
 console.log(await patch({
   [`userPrefs/${UID}/following/${LIVE}`]: { code: 'ZZZZZZ', label: 'd5b-control' },
@@ -1411,7 +1428,7 @@ is only the `setFollowingEntryClearingRevocation` half, not `registerAsFollower`
 |---|---|---|---|
 | `401` | `true` | `200`, cleared | **PASS** — the update is atomic on the live backend |
 | `401` | `null` | `200`, cleared | **FINDING** — RTDB applied half the update; M11 does not hold |
-| `401` | `true` | `401` | **INVALID** — everything is failing; stale token or wrong `DB` |
+| `401` | `true` | `401` | **INVALID** — the control did not run. Check `LIVE` first (`users/{LIVE}/presence/code` must be non-null); a placeholder or dead uid is refused exactly like step 4. Only if `LIVE` is confirmed real does this mean a stale token or wrong `DB` — and a `200` on the step-6 `PUT` rules the token out. |
 | `200` | — | — | **FINDING** — the G6 guard did not refuse a dangling followee (contradicts D2) |
 
 ---
