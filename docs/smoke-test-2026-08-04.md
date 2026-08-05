@@ -13,7 +13,11 @@
   account being removed is revoked (merge 2026-08-04, link-as-production
   2026-08-05) and the one that survives is not. That is the item its own roadmap
   entry marked UNVERIFIED-LIVE.
-- **Parts D and E have never been run at all.**
+- **Part D — D1, D2, D3, D4 and D5b PASS; D5a is partial.** The live run's
+  headline result is D5b: RTDB's all-or-nothing multi-path behaviour, which both
+  G10 and M11 rest on, is confirmed on the real project rather than only in the
+  rules emulator.
+- **Part E has never been run.**
 
 Nothing is a passing row until the results table at the bottom says so.
 
@@ -70,7 +74,7 @@ live run can tell you that the suite has not already settled.
 | **M5** | 100-attempt filename cap | jest, fake fs only | nothing practical — see "Nothing to smoke test" | — |
 | **M8** | `adoptGroupNames` tick in the browser | jest + browser on canned responses; **OBSERVED against a live merge 2026-08-05** | nothing further; fully exercised | B2, C4 |
 | **M10** | jest pins the path `setFollowingEntry` builds | jest | nothing — it is a guard over two files | — |
-| **M11** | revocation clear + follow write in one atomic update | jest + rules emulator | the RTDB all-or-nothing behaviour it rests on, against the live backend (D5b). The redemption path itself is **not** hand-reachable — see D5 | D5b |
+| **M11** | revocation clear + follow write in one atomic update | jest + rules emulator; **the RTDB all-or-nothing behaviour CONFIRMED on the live backend 2026-08-05** | nothing further reachable — the redemption path itself only fires in a race, see D5 | D5b |
 | **M12** | jest guard tying the rules predicate to `followeeExists` | jest | nothing — it is a guard over two files | — |
 
 ## Prerequisites, by part
@@ -1422,6 +1426,20 @@ console.log(await rtdb(`userPrefs/${UID}/following`));   // confirm LIVE is gone
 is expected. No `users/{LIVE}/followers/{R}` row was ever written — this PATCH
 is only the `setFollowingEntryClearingRevocation` half, not `registerAsFollower`.
 
+**OBSERVED 2026-08-05 — the PASS row.** Step 4 returned
+`401 {"error":"Permission denied"}`, step 5 read the revocation back as `true`,
+and the control landed `200` and cleared it. **RTDB's all-or-nothing multi-path
+behaviour is now confirmed on the live project**, not only in the rules
+emulator — that is the single assumption both G10's reorder and M11's atomic
+write rest on.
+
+⚠️ **One detour worth keeping.** The control was first run with `LIVE` left as
+the literal placeholder. The `PUT` before it still returned `200`, because the
+rules let `R` write *any* `$revoker` key under its own `revocations/{R}` node, so
+the bad value passed the one step that should have caught it; the PATCH was then
+refused for the same reason step 4 was, which looks like a failed control rather
+than a bad setup. Hence the `users/{LIVE}/presence/code` check above.
+
 ##### Reading the result
 
 | Step 4 | Step 5 | Step 6 | Verdict |
@@ -1533,5 +1551,6 @@ row, and a row that owes something says so.
 | D2 | G6 `.validate` refuses a dangling followee | **PASS — OBSERVED 2026-08-05** | all three depths refused; control accepted |
 | D3 | G6 client gate stops the republish | **PASS — OBSERVED 2026-08-05** | reported verified by the operator |
 | D4 | G9 rotate drops the dead followee | **PASS — OBSERVED 2026-08-05** | reported verified by the operator |
-| D5 | G10 order + M11 atomicity | **PARTIAL — G10 half OBSERVED 2026-08-05** | Redemption of a dangling creator's invite **fails**, which is G10. ⚠️ **M11's half has not run**: it needs `revocations/{R}/{C}` to exist beforehand, and the step did not say how to create one — a gap now fixed. Also not yet confirmed: that the failed redemption left no `users/{C}/followers/{R}` row, which is G10's actual claim. |
+| D5b | M11 — atomic multi-path refusal on the live backend | **PASS — OBSERVED 2026-08-05** | Refused `401`, revocation survived as `true`, control landed `200` and cleared it. **Confirms RTDB's all-or-nothing behaviour on the real project**, previously emulator-only — the assumption both G10 and M11 rest on. |
+| D5a | G10 — a dangling invite is refused and writes nothing | **PARTIAL — OBSERVED 2026-08-05** | Redemption of a purged creator's invite **fails**. ⚠️ That is the `creator-missing` guard (`js/invites.ts:202`), **not** G10's reorder — the reorder only fires in a race and is not hand-reachable (see D5). Not yet confirmed: that `users/{C}` is entirely absent afterwards. |
 | E1 | SEC-4: performLink / graduation / expunge unaffected | | |
