@@ -91,12 +91,28 @@ export function fixtureTokens(tag) {
   return { inviteL: `smt-${tag}-loserinvite` };
 }
 
-/** @param {string} tag */
+/**
+ * Share codes for the seeded accounts.
+ *
+ * ⚠️ UPPER-CASED because the shipped rules require it: SEC-1 (`1ae38a8`) has
+ * validated `users/$uid/presence/code` against `^[A-Z0-9]{1,32}$` since
+ * 2026-08-04, and the tag regex both CLIs enforce is lowercase-only — so
+ * without this, no tag could produce a legal code (M14). The Admin SDK bypasses
+ * rules, so the seed worked anyway; what it wrote was a state no client could
+ * have produced. `ops-merge-fixture-rules.test.js` derives the constraint from
+ * `database.rules.json` rather than restating it, and is what catches the next
+ * rule of this kind.
+ *
+ * ⚠️ Changing this changes every seeded code AND every code the cleanup nulls.
+ * A fixture seeded by an older build must be cleaned by that build, or its
+ * `codeIndex/` entries strand.
+ * @param {string} tag
+ */
 export function fixtureCodes(tag) {
   const uids = fixtureUids(tag);
   /** @type {Record<string, string>} */
   const out = {};
-  for (const role of Object.keys(uids)) out[role] = `SMK${tag}${role}`.replace(/[^A-Za-z0-9]/g, '');
+  for (const role of Object.keys(uids)) out[role] = `SMK${tag}${role}`.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   return out;
 }
 
