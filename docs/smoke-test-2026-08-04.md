@@ -1,13 +1,14 @@
 # Smoke test — the followup queue + the security audit (2026-08-04)
 
-**Status (2026-08-05): PARTS A AND B PASS. PART C IS HALF DONE. D AND E UNRUN.**
+**Status (2026-08-05): PARTS A, B AND C ALL PASS. D AND E UNRUN.**
 
 - **Part A** — A0–A5 exercised in a session container on a fake credential;
   **A6** run on the operator machine, and it is the only one that needed to be.
 - **Part B** — all five run by the operator against the dev project. That is the
   first time G4's cascade block and M8's adopt tick have been seen in a browser
   against live data rather than canned responses.
-- **Part C — C1a, C1b, C2, C3, C4 and C5 PASS; only C6 is unrun.**
+- **Part C — ALL SIX STEPS PASS** (C1a, C1b, C2, C3, C4, C5, C6). Every
+  destructive check on this page has now run against the dev project.
   **SEC-6 is now fully exercised live, on both routes and both sides**: the
   account being removed is revoked (merge 2026-08-04, link-as-production
   2026-08-05) and the one that survives is not. That is the item its own roadmap
@@ -27,11 +28,17 @@ what shipped *after* those steps were exercised, namely
 - the eight items of `docs/security-audit-2026-08-04-roadmap.md` —
   **SEC-1 … SEC-8**.
 
-Every one of those is verified by **jest, the rules emulator, or an offline SDK
-probe only**. No session container has ever held a service-account credential, so
-none of it has run against a live Firebase project. That is the gap this file
-exists to close, and it is why "the suite is green" is not an answer to any step
-below.
+**When this page was written**, every one of those was verified by **jest, the
+rules emulator, or an offline SDK probe only** — no session container has ever
+held a service-account credential, so none of it had run against a live Firebase
+project. That was the gap this file existed to close, and it is why "the suite is
+green" is not an answer to any step below.
+
+**As of 2026-08-05 that gap is mostly closed.** Parts A, B and C have all been
+run on the dev project. What is left is **Part D** (the client fixes — G6, G9,
+G10, M11, and SEC-1's charset rule as deployed), which needs a real signed-in
+client, and **Part E** (the SEC-4 regression). Those five items are still
+jest-and-emulator only, and the inventory table below marks each one.
 
 Read `functions/ops/README.md` (the runbook) and the "Before you start" section
 of `docs/operator-panel-smoke-test.md` first — its preconditions (dev project
@@ -45,20 +52,20 @@ live run can tell you that the suite has not already settled.
 
 | ID | What shipped | Verified so far | Live run adds | Step |
 |---|---|---|---|---|
-| **SEC-1** | `presence/code` charset rule; three admin sinks check `codeIndex` ownership | rules emulator + store mock | the rule is really deployed on dev; the ownership check on live data | D1, C6 |
-| **SEC-2** | `requireUid`/`assertUid` at the edge and in the builders | jest (105 cases) | nothing — but it is free, and it pins the edge on your machine | A4 |
-| **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest | nothing logically; confirms your build serves it | A2 |
+| **SEC-1** | `presence/code` charset rule; three admin sinks check `codeIndex` ownership | rules emulator + store mock; **ownership check OBSERVED on live data 2026-08-05 (C6)** | only that the charset rule is really deployed on dev | D1 |
+| **SEC-2** | `requireUid`/`assertUid` at the edge and in the builders | jest (105 cases); **every refusal exercised over HTTP 2026-08-04, incl. the two ordering cases on a real project (B4)** | nothing further | A4, B4 |
+| **SEC-3** | port-less `Host`/`Origin` resolve to the scheme default | jest; **12 probes run 2026-08-04** | nothing further | A2 |
 | **SEC-4** | `rootUpdate` REFUSES a key with an empty segment | jest + offline `firebase-admin` probe | that no shipped caller regressed — a **regression** check, not a positive one | E1 |
-| **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore` | that dumps land there from *your* launch directory | A5 |
+| **SEC-5** | `.ops-audit/` unanchored; audit dir absolute | jest via `git check-ignore`; **both halves run 2026-08-04** | nothing further | A5 |
 | **SEC-6** | `endSession` on merge + link-as-production | **OBSERVED LIVE on BOTH routes, both sides** — merge 2026-08-04, link-as-production 2026-08-05 | nothing further; the item is fully exercised | C1, C2 |
-| **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium | that a real browser runs the panel under the nonce | A3, B0 |
+| **SEC-7** | CSP with per-response nonce, `X-Frame-Options` | jest + headless Chromium; **headers checked and the panel driven in a real browser 2026-08-04/05** | nothing further | A3, B0 |
 | **SEC-8** | docs only — "G3" kept on the merge leg | n/a | nothing to run | — |
-| **G4** | purge preview names predicted cascades | jest | **the block has never been rendered in a browser** | B1, C3 |
+| **G4** | purge preview names predicted cascades | jest; **rendered in a browser and driven preview→execute 2026-08-05** | nothing further; fully exercised | B1, C3 |
 | **G6** | rules `.validate` on `following/$followee` + client gate | rules emulator | **live on dev, never exercised** | D2, D3 |
 | **G8** | purge no longer refuses an account with no Auth record | jest + the run that found it | already observed live | — |
 | **G9** | `rotateCode` drops a dead followee from its fan-out | jest | never device-observed | D4 |
 | **G10** | redemption's refusable write runs first | jest | never device-observed | D5 |
-| **M3** | `canvasUids` shared helper | jest | integrity still reports canvases correctly on live data | B4 |
+| **M3** | `canvasUids` shared helper | jest; **integrity run over live data 2026-08-05** | nothing further | B4 |
 | **M4** | non-`EEXIST` rethrow | jest (fake fs); **OBSERVED on a real filesystem 2026-08-05** | nothing further; fully exercised | C5 |
 | **M5** | 100-attempt filename cap | jest, fake fs only | nothing practical — see "Nothing to smoke test" | — |
 | **M8** | `adoptGroupNames` tick in the browser | jest + browser on canned responses; **OBSERVED against a live merge 2026-08-05** | nothing further; fully exercised | B2, C4 |
@@ -1200,7 +1207,7 @@ row, and a row that owes something says so.
 | C3 | G4 cascade agrees preview→execute; enumeration entry survives | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
 | C4 | M8 adopted merge (say which variant was run) | **PASS — OBSERVED 2026-08-05, FULL variant (ticked)** | **56 of 57**, sole owed claim `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName` — want `"S in GB"`, got `"L in GB"`. That is M8 adopting the loser's name (working) and M13's false failure (expected), exactly as derived. Nothing else owed. |
 | C5 | M4 rethrow on a real fs; nothing written | **PASS — OBSERVED 2026-08-05, both halves** | **Refusal:** `EACCES` on the pre-image write, rethrown after one attempt (M4's branch on real hardware for the first time), `smk-c4v1-follower` still fully present. **Control:** after a `chmod 700` that actually ran, the same purge proceeded and the account was purged — so the refusal was the permission, not a broken panel. The directory being verifiably `dr-x------` at the OS level is independent corroboration. |
-| C6 | SEC-1 `codeIndex` ownership on purge and merge | | |
+| C6 | SEC-1 `codeIndex` ownership on purge and merge | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; the victim's `codeIndex` entry survived a purge and a merge of the account that had planted their code. Per-step output not captured here. |
 | D1 | SEC-1 charset rule live on dev | | |
 | D2 | G6 `.validate` refuses a dangling followee | | |
 | D3 | G6 client gate stops the republish | | |
