@@ -961,6 +961,28 @@ describe('canvasKeys omitted vs empty are different facts', () => {
     expect(page).toMatch(/fixAgeLabel/);
   });
 
+  // M15: the column is the AUTH record's creationTime (project.js:63, from
+  // deps.listAuthUsers) and nothing in RTDB feeds it. An expunge clears RTDB
+  // and leaves the Auth record standing, and the Telegram uid is deterministic,
+  // so the next Mini App open reuses it — the account's data is then seconds
+  // old while the column reads days. Observed live 2026-08-05 (smoke-test step
+  // E1): a freshly re-bootstrapped account read "2d 12h ago". The value is
+  // accurate about what it measures; the header has to say what that is,
+  // because the operator scans this table to pick a target for a destructive
+  // action. There is no RTDB-derived per-account created time to show instead —
+  // adding one would mean two deployed surfaces and would read null for exactly
+  // the accounts being looked at.
+  test('the created column names the auth record as its source', () => {
+    const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
+    const header = page.match(/<th data-k="createdAt"[^>]*>([^<]*)<\/th>/);
+    // The sort key is what the header is FOR, so the rename must not move it.
+    expect(header).not.toBeNull();
+    expect(header[1]).toMatch(/auth/i);
+    expect(header[1]).not.toBe('created');
+    // And the divergence is explained where it is met, not only in the ledger.
+    expect(page).toMatch(/title="Firebase Auth record creation time[^"]*"/);
+  });
+
   // The bug the operator hit: a table full of accounts reading "available"
   // that had not been seen in weeks. The cell must render the computed label,
   // never the stored string.

@@ -11,23 +11,49 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**START HERE: nothing is owed, and there are THREE UNRULED items — that is the
-open decision.** The live smoke test of everything closed since the last one is
-**COMPLETE**: `docs/smoke-test-2026-08-04.md`, every step run against the dev
-project across 2026-08-04/05. Parts A, B, C and E pass; Part D passes except
-D5a, which is partial *by nature* rather than for want of running (see below).
+**START HERE: nothing is owed, and nothing on the ledger is unruled.** The three
+items that were unruled — **M13, M14 and M15** — were **put to the operator,
+ruled DO, and built on 2026-08-05**. The live smoke test of everything closed
+since the last one is **COMPLETE**: `docs/smoke-test-2026-08-04.md`, every step
+run against the dev project across 2026-08-04/05. Parts A, B, C and E pass;
+Part D passes except D5a, which is partial *by nature* rather than for want of
+running (see below).
 
 **What is open:**
 
 | | |
 |---|---|
-| **M13, M14, M15** | **NEW and UNRULED** — filed 2026-08-04/05, each with `file:line`, evidence and costed options in `docs/operator-panel-followups.md`. **A ruling is the operator's; filing is not one.** No session may start one alone. |
 | **G1, M1, M2, M6, M7** | **WON'T FIX**, ruled 2026-08-03. Raise it before working one, not after. |
 | **G3 / #302** | **Parked**, and needs the operator's explicit in-session go-ahead — see the standing rule directly below. |
 
-So the honest reading is unchanged from the last handoff: **there is nothing on
-the ledger a session may start on its own.** If that leaves the choice empty,
-the answer is to ask, not to pick the biggest item.
+So the honest reading is unchanged from the last handoff, and closing three
+items did not change it: **there is nothing on the ledger a session may start
+on its own.** If that leaves the choice empty, the answer is to ask, not to
+pick the biggest item. An emptier ledger is not a larger licence — it is the
+normal state of this repo.
+
+**What the three closures shipped** (full entries, including what each
+deliberately does not claim, in `docs/operator-panel-followups.md`):
+
+- **M13** — route **(b)**. `buildMergeAssertions` takes `adopt`; `verify-merge.js`
+  takes `--adopt`. An adopted merge no longer reports a false `1 of 57`, and a
+  failing run names that shape as a cause to rule out. The stale pre-M8
+  rationale turned out to live at **four** sites, not the one the ledger named.
+- **M14** — **both** halves. Seeded codes are upper-cased so they satisfy SEC-1,
+  and a new guard derives the charset **from `database.rules.json`** instead of
+  restating it. ⚠️ **This changes every seeded code and every code `--clean`
+  nulls** — a fixture seeded by an older build must be cleaned by that build.
+- **M15** — route **(a)**. The panel's column reads **`auth created`** and says
+  on hover why it can disagree with the account's data. Route (b) had no field
+  to show: there is no RTDB-derived per-account created time, and adding one
+  means two deployed surfaces.
+
+⚠️ **The generalisation worth carrying, from M13:** the ledger's own promotion
+test — *does it affect the correctness of a destructive write?* — said **no**,
+and the operator promoted it anyway on the `2dec78c` precedent. That test is the
+default, not a ceiling: **the thing that certifies a destructive write counts
+too.** A verifier that cries wolf on a correct write is worse than no verifier,
+because the operator's next move is to hunt a defect that is not there.
 
 **What the smoke test settled**, if you read nothing else about it — four items
 stopped being jest-and-emulator-only:
@@ -80,7 +106,31 @@ in the operator panel now revokes, which bounds that window but cannot close it
 — only the rules can. If the go-ahead is given, start from the measurement in
 the followups doc, not from folklore.
 
-**Branch status (2026-08-05, LATEST): `claude/knockknock-dev-setup-u2cpr8`
+**Branch status (2026-08-05, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
+MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.** Cut from
+`origin/dev` at `59f1a51`, which had not moved when the merge was made. Four
+commits — `2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), and the
+docs commit carrying this file, the ledger and the runbook — plus a `--no-ff`
+merge commit matching `dev`'s own history; a fast-forward was available and
+deliberately not taken. `dev` → `main` is the maintainer's; no PR was opened and
+none was asked for. Working tree clean, nothing unpushed. The feature branch is
+now fully contained in `dev` and is redundant — kept, not deleted, like its
+predecessors.
+
+⚠️ **The merge was made from a temporary branch at `origin/dev`, NOT by checking
+out local `dev`.** Local `dev` is a shallow-clone artifact (see the landmine
+below) and merging into it would have produced garbage. `git push origin
+HEAD:dev` is the shape to reuse; local `dev` was left untouched.
+
+⚠️ **Nothing here would deploy if it were merged.** Every file is under
+`functions/ops/**` (excluded from the functions archive via `functions.ignore`),
+`functions/test/**`, or `docs/**`. `database.rules.json`, `js/`, `.github/` and
+the shipped `functions/*.js` are untouched — verified by filename before
+committing, not inferred. Do not generalise that to the next merge: a push to
+`dev` still fires `deploy-dev.yml` ungated, and it would ship whatever a
+different change happens to touch.
+
+**Prior branch status (2026-08-05): `claude/knockknock-dev-setup-u2cpr8`
 MERGED TO `dev` AND PUSHED TWICE, at the operator's explicit instruction.**
 `origin/dev` moved `c42cd94` → `a2b8c2d` (the smoke-test page, M13/M14), then
 `a2b8c2d` → `38e4bc2` (the live results, M15, the SEC-6 roadmap correction).
@@ -616,6 +666,63 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**M13 + M14 + M15 closure, green bar OBSERVED (2026-08-05)** on
+`claude/knockknock-unruled-decisions-ak3gaa`, cut from `origin/dev` at
+`59f1a51`, on a FRESH container after the documented `npm ci` — baseline
+re-measured on that container before any edit (functions **1111/1111** in 33
+suites), which is the control this bar is read against:
+
+- functions **1123/1123** (**34** suites, **+1**) — **+12**: 4 in
+  `ops-merge-fixture.test.js` (an adopted merge matching the adoption-aware
+  claims end-to-end through the real `buildMergePlan`/`applyMergePlan`, the
+  count of differing claims being exactly one, no claim explaining itself by
+  denying the tick exists, and the seed notes naming `--adopt`), 3 in
+  `ops-merge-cli.test.js` (a value after `--adopt` refused pre-credential, the
+  bare flag accepted as far as the credential, and the call-site seam), 4 in
+  the new `ops-merge-fixture-rules.test.js` (the parse control, every seeded
+  leaf against every charset rule naming it, `codeIndex` agreeing with the
+  accounts, and no legal tag producing an illegal code), 1 in
+  `ops-server.test.js` (the column names the auth record and keeps its sort key)
+- rules (emulator) **119/119** (12 suites) — **unchanged**;
+  `database.rules.json` is untouched by this work
+- web jest **2149/2149** (88 suites) — **unchanged**; nothing here touches `js/`
+- `typecheck` + `typecheck:scripts` — clean; **zero** new suppressions, swept
+  over the diff
+- `node scripts/prod.js` — builds
+
+**Ten violations planted across the three items, and every guard was verified by
+watching it go red rather than by passing** — four for M13, three for M14, three
+for M15; every production file byte-identical after every revert. The three that
+carried the most information: dropping `adopt` at the call site (the
+parsed-and-dropped-on-the-floor shape M8 was), **tightening the shipped rule so
+the existing codes stop satisfying it** (the evidence M14's guard reads the
+rules file live and would catch the NEXT rule rather than the last one), and
+rewriting the `.validate` out of regex shape so the parser finds nothing (the
+control firing instead of the suite passing vacuously).
+
+**What that bar does NOT cover.** Jest only — no live project, no browser. No
+session container has ever held a service-account credential, so: `--adopt` has
+never been passed to a real run (the seam beyond the call site is pinned by a
+source assertion, and the test says so); the upper-cased codes have never been
+seeded; and the renamed column has not been RENDERED, only asserted in the
+markup, since `panel.html` has no DOM harness.
+
+**M14's one live precondition was met before the merge.** Whether a seeded
+fixture was live on dev was UNKNOWN from a session container — there is no
+credential here — so it was raised as the operator's to settle, and **they
+reported the old fixtures cleaned up (2026-08-05) before instructing the
+merge.** REPORTED, not observed by this session: nothing here can see the dev
+project. ⚠️ **The constraint itself did not expire with those fixtures** — any
+fixture seeded by a pre-M14 build must still be cleaned by that build, because
+`--clean` derives the `codeIndex/` keys it nulls from `fixtureCodes`, which
+now upper-cases. It is recorded at the function and in `ops/README.md`.
+
+⚠️ **This work ships NOTHING.** Every changed file is under `functions/ops/**`
+(excluded from the functions archive via `functions.ignore`), under
+`functions/test/**`, or under `docs/**`. `database.rules.json`, `js/`,
+`.github/` and the shipped `functions/*.js` are untouched — verified by
+filename, not inferred. Do not generalise that to the next change.
 
 **GREEN BAR OBSERVED ON THE MERGED RESULT at `38e4bc2` — `dev`'s tip, not the
 branch's (2026-08-05):** functions **1111/1111** (33 suites) · rules (emulator)

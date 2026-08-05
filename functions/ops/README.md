@@ -360,6 +360,23 @@ node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag
 Add `--telegram` to seed a mapping on the loser; add `--repoint` to `verify-merge`
 when the merge was run as **link via merge** rather than as a plain merge.
 
+⚠️ **A fixture seeded before the M14 fix must be cleaned by the build that
+seeded it.** Seeded share codes are now upper-cased, because SEC-1 requires
+`^[A-Z0-9]{1,32}$` and the old derivation could not produce a legal code for any
+tag. `--clean` derives the `codeIndex/` keys it nulls from the same function, so
+running the new build's `--clean` over an old build's fixture leaves the old
+lowercase index entries behind. Clean first, then pull; or null
+`codeIndex/SMK<tag><role>` by hand for the six roles.
+
+⚠️ **Add `--adopt` to `verify-merge` if you TICKED the shared group's adoption in
+the merge preview.** The tick sends `adoptGroupNames` (M8), which makes the
+loser's per-group `displayName` win in the one group both accounts are in. The
+read-back predates the tick and claimed the survivor's name unconditionally, so
+without the flag an adopted merge reports **1 of 57 owed** on that claim alone —
+a false failure, confirmed on dev 2026-08-05 (**M13**). `--adopt` describes what
+you did at *execute* time; `--mapping-shape` describes how you *seeded*. Getting
+either wrong is the cry-wolf failure `2dec78c` is remembered for, not a finding.
+
 **The link-via-merge variant** — the link this README tells you to *prefer* and
 the one production's `performLink` shadows. **Exercised on dev 2026-08-03, 65/65:**
 

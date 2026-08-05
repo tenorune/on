@@ -60,6 +60,11 @@ export function buildRows(snapshot, secret, now = Date.now()) {
   const rows = Object.keys(snapshot.users || {}).map((uid) => {
     const presence = snapshot.users[uid]?.presence || {};
     const { followers, following } = contactSets(snapshot, uid);
+    // The AUTH record's creation time, not the account data's. Nothing in RTDB
+    // carries a per-account created stamp, and an expunge leaves the Auth
+    // record standing, so a re-bootstrapped account reads days old here while
+    // its data is seconds old. The panel's column is labelled "auth created"
+    // for that reason — do not relabel it back (M15).
     const createdAt = authByUid.get(uid)?.createdAt ?? null;
     const lastSeen = typeof presence.lastSeen === 'number' ? presence.lastSeen : null;
     const status = presence.status ?? null;
