@@ -1250,12 +1250,52 @@ particular no `users/{C}/followers/{R}` row. Before G10 `registerAsFollower` ran
 first and succeeded, leaving an asymmetric follower row pointing at a vanished
 creator.
 
-For **M11**, the atomicity half: `setFollowingEntryClearingRevocation` issues the
-revocation clear and the following write as **one** multi-path update
-(`js/db/social.ts:331-335`). So on the failed redemption above, confirm
-`revocations/{R}/{C}` — if it existed — is **still there**. A non-atomic
-implementation would clear the revocation and then fail the follow, dropping the
-watcher's cleanup of a stale own-side follow.
+#### M11 — the atomicity half, and it needs SETUP
+
+`setFollowingEntryClearingRevocation` (`js/db/social.ts:331-335`) issues the
+revocation clear and the following write as **one** multi-path `update()`. The
+property to observe is that a refused redemption leaves the revocation key
+**exactly where it was**.
+
+⚠️ **There is nothing to observe unless `revocations/{R}/{C}` already exists**,
+and in a fresh test it does not — a revocation row is only written when the
+followee **revokes** a follower. An earlier draft of this step said to check it
+"if it existed" without saying how to make it exist, so this half was
+unrunnable. Plant it first.
+
+**R can write it directly** — `database.rules.json`'s `revocations/$revoked/$revoker`
+allows `auth.uid === $revoker || auth.uid === $revoked`, so the revoked account
+may write its own row, and `.validate` requires the value to be exactly `true`.
+Using the **D0 harness**, signed in as **R**:
+
+```js
+const C = '<the dead creator uid>';
+console.log(await rtdb(`revocations/${UID}/${C}`, 'PUT', true));  // expect 200
+console.log(await rtdb(`revocations/${UID}/${C}`));               // expect true
+```
+
+Now redeem C's dangling invite. It must fail, as above. Then:
+
+```js
+console.log(await rtdb(`revocations/${UID}/${C}`));               // expect STILL true
+```
+
+**Expect `true`.** A non-atomic implementation would clear the revocation and
+then fail the following write, dropping the watcher's cleanup of a stale
+own-side follow — which is the defect M11 closed. The clear and the refusable
+write go up together or not at all.
+
+⚠️ **The control:** confirm the same planted key IS cleared by a redemption that
+**succeeds**. Plant `revocations/{R}/{live}` for a creator who still exists,
+redeem that invite, and the key must be gone. Without it, a revocation that
+survives proves only that something failed — not that the update was refused
+whole. Same rule as every other step in this part.
+
+**Clean up** any revocation row you planted that a redemption did not consume:
+
+```js
+console.log(await rtdb(`revocations/${UID}/${C}`, 'DELETE'));
+```
 
 The rules emulator already settled the assumption underneath this (RTDB rejects a
 multi-path update **whole** when one path fails a `.validate`). What D5 adds is
@@ -1360,8 +1400,8 @@ row, and a row that owes something says so.
 | C5 | M4 rethrow on a real fs; nothing written | **PASS — OBSERVED 2026-08-05, both halves** | **Refusal:** `EACCES` on the pre-image write, rethrown after one attempt (M4's branch on real hardware for the first time), `smk-c4v1-follower` still fully present. **Control:** after a `chmod 700` that actually ran, the same purge proceeded and the account was purged — so the refusal was the permission, not a broken panel. The directory being verifiably `dr-x------` at the OS level is independent corroboration. |
 | C6 | SEC-1 `codeIndex` ownership on purge and merge | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; the victim's `codeIndex` entry survived a purge and a merge of the account that had planted their code. Per-step output not captured here. |
 | D1 | SEC-1 charset rule live on dev | **PASS — OBSERVED 2026-08-05, both routes** | **Route A**: deployed `/.settings/rules.json` carries the SEC-1 charset, so the dev project runs rules at or after `545dadf`. **Route B**: enforcement confirmed from a signed-in client over the REST API, including the write-back control that rules out a stale token. |
-| D2 | G6 `.validate` refuses a dangling followee | | |
-| D3 | G6 client gate stops the republish | | |
-| D4 | G9 rotate drops the dead followee | | |
-| D5 | G10 order + M11 atomicity | | |
+| D2 | G6 `.validate` refuses a dangling followee | **PASS — OBSERVED 2026-08-05** | all three depths refused; control accepted |
+| D3 | G6 client gate stops the republish | **PASS — OBSERVED 2026-08-05** | reported verified by the operator |
+| D4 | G9 rotate drops the dead followee | **PASS — OBSERVED 2026-08-05** | reported verified by the operator |
+| D5 | G10 order + M11 atomicity | **PARTIAL — G10 half OBSERVED 2026-08-05** | Redemption of a dangling creator's invite **fails**, which is G10. ⚠️ **M11's half has not run**: it needs `revocations/{R}/{C}` to exist beforehand, and the step did not say how to create one — a gap now fixed. Also not yet confirmed: that the failed redemption left no `users/{C}/followers/{R}` row, which is G10's actual claim. |
 | E1 | SEC-4: performLink / graduation / expunge unaffected | | |
