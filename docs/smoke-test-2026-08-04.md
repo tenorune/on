@@ -7,7 +7,7 @@
 - **Part B** — all five run by the operator against the dev project. That is the
   first time G4's cascade block and M8's adopt tick have been seen in a browser
   against live data rather than canned responses.
-- **Part C — C1a, C1b, C2, C3 and C4 PASS; C5 and C6 are unrun.**
+- **Part C — C1a, C1b, C2, C3, C4 and C5 PASS; only C6 is unrun.**
   **SEC-6 is now fully exercised live, on both routes and both sides**: the
   account being removed is revoked (merge 2026-08-04, link-as-production
   2026-08-05) and the one that survives is not. That is the item its own roadmap
@@ -59,7 +59,7 @@ live run can tell you that the suite has not already settled.
 | **G9** | `rotateCode` drops a dead followee from its fan-out | jest | never device-observed | D4 |
 | **G10** | redemption's refusable write runs first | jest | never device-observed | D5 |
 | **M3** | `canvasUids` shared helper | jest | integrity still reports canvases correctly on live data | B4 |
-| **M4** | non-`EEXIST` rethrow | jest, **fake fs only** | **the rethrow on a real filesystem** | C5 |
+| **M4** | non-`EEXIST` rethrow | jest (fake fs); **OBSERVED on a real filesystem 2026-08-05** | nothing further; fully exercised | C5 |
 | **M5** | 100-attempt filename cap | jest, fake fs only | nothing practical — see "Nothing to smoke test" | — |
 | **M8** | `adoptGroupNames` tick in the browser | jest + browser on canned responses; **OBSERVED against a live merge 2026-08-05** | nothing further; fully exercised | B2, C4 |
 | **M10** | jest pins the path `setFollowingEntry` builds | jest | nothing — it is a guard over two files | — |
@@ -948,16 +948,27 @@ It also pins M4's branch on real hardware for the first time. `isEexist` tests
 immediately after **one** attempt — no retry, no filename bumping. Every prior
 test of that branch drove a fake fs.
 
-⚠️ **The control did NOT pass, so this row is not yet complete.** After
-`chmod 700 /tmp/ro-audit` the purge failed with the same error. Until a
-writable run succeeds against the same `--audit-dir`, the refusal is attributed
-to the permission by its errno and path alone, not by contrast. Note a restart
-is **not** the missing ingredient — permissions are evaluated at `open(2)` and
-nothing here caches them. Two things to check before suspecting the panel:
-whether the directory is genuinely writable by the account running node
-(`touch /tmp/ro-audit/probe`, `ls -ld /tmp/ro-audit`, `id -un`), and whether the
-second error carries the **same** millisecond in its filename — if it does, it
-is the first failure's text, not a fresh attempt.
+**The control passed on the second attempt, and the first attempt at it is the
+trap worth recording.** `chmod 700` had been typed into the terminal the panel
+was running in the **foreground** of, so it went to the node process's stdin and
+the shell never ran it — no error, and the directory stayed at mode `500`
+(`ls -ld` read `dr-x------`, owner matching `id -un`, which is what proved it:
+a chmod by the owner cannot fail). Re-run from a second terminal, the purge
+proceeded and `smk-c4v1-follower` was purged.
+
+⚠️ **Run the `chmod` in a different terminal, or stop the panel first.** A
+restart is *not* needed for the permission change itself — permissions are
+evaluated at `open(2)` and nothing here caches them — but a foreground panel
+will silently swallow the command.
+
+**The dump necessarily landed**, and this needs no separate check:
+`writeAuditRecord` throws on failure and runs *before* `apply(plan)`, so a purge
+that proceeded is a purge whose pre-image was written first. That is the same
+ordering the refusal half demonstrated, observed from the other side.
+
+⚠️ **Clean up afterwards.** `/tmp/ro-audit/` now holds a real pre-image — full
+account data, the same content SEC-5 was about. It is outside the repo so no
+`.gitignore` rule applies to it; delete it rather than leaving it in `/tmp`.
 
 **What this does NOT cover:** M5's 100-attempt cap. See "Nothing to smoke test".
 
@@ -1188,7 +1199,7 @@ row, and a row that owes something says so.
 | C2 | SEC-6 link-as-production revokes the derived account only | **PASS — OBSERVED 2026-08-05, both rows** | **Derived** `64b7c129…928c`: `03 Aug 10:09:56` → `05 Aug 19:49:09 GMT`, +207,553 s. **Phrase** `c45849d7…d04b`: post-link value `03 Aug 10:23:25 GMT`, predates the link → never revoked, *and* its `lastRefreshTime` is 7½ min before the revoke, so a demonstrably live session survived. Completes SEC-6 across **both** routes. |
 | C3 | G4 cascade agrees preview→execute; enumeration entry survives | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
 | C4 | M8 adopted merge (say which variant was run) | **PASS — OBSERVED 2026-08-05, FULL variant (ticked)** | **56 of 57**, sole owed claim `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName` — want `"S in GB"`, got `"L in GB"`. That is M8 adopting the loser's name (working) and M13's false failure (expected), exactly as derived. Nothing else owed. |
-| C5 | M4 rethrow on a real fs; nothing written | **PARTIAL — OBSERVED 2026-08-05, control outstanding** | `EACCES` on the pre-image write, one attempt, rethrown; `smk-c4v1-follower` **still fully present** afterwards — the half that matters. ⚠️ The `chmod 700` control still fails with the same error, so the refusal is attributed by errno and path rather than by contrast. Not a pass until a writable run succeeds against the same `--audit-dir`. |
+| C5 | M4 rethrow on a real fs; nothing written | **PASS — OBSERVED 2026-08-05, both halves** | **Refusal:** `EACCES` on the pre-image write, rethrown after one attempt (M4's branch on real hardware for the first time), `smk-c4v1-follower` still fully present. **Control:** after a `chmod 700` that actually ran, the same purge proceeded and the account was purged — so the refusal was the permission, not a broken panel. The directory being verifiably `dr-x------` at the OS level is independent corroboration. |
 | C6 | SEC-1 `codeIndex` ownership on purge and merge | | |
 | D1 | SEC-1 charset rule live on dev | | |
 | D2 | G6 `.validate` refuses a dangling followee | | |
