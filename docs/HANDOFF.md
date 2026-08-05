@@ -107,9 +107,15 @@ in the operator panel now revokes, which bounds that window but cannot close it
 the followups doc, not from folklore.
 
 **Branch status (2026-08-05, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
-MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.** Cut from
-`origin/dev` at `59f1a51`, which had not moved when the merge was made. Four
-commits — `2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), and the
+MERGED TO `dev` AND PUSHED TWICE, at the operator's explicit instruction.**
+`origin/dev` moved `59f1a51` → `a1d04e8` (the three items and their docs), then
+`a1d04e8` → the second merge (the live smoke-test steps, their two corrections,
+and the Part A–C result). Both are `--no-ff` merge commits matching `dev`'s own
+history; a fast-forward was available each time and deliberately not taken.
+**Every file in the second merge is under `docs/**` and rides no deploy.**
+
+The first merge was cut from `origin/dev` at `59f1a51`, which had not moved when
+it was made. Four commits — `2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), and the
 docs commit carrying this file, the ledger and the runbook — plus a `--no-ff`
 merge commit matching `dev`'s own history; a fast-forward was available and
 deliberately not taken. `dev` → `main` is the maintainer's; no PR was opened and
@@ -712,14 +718,31 @@ source assertion, and the test says so); the upper-cased codes have never been
 seeded; and the renamed column has not been RENDERED, only asserted in the
 markup, since `panel.html` has no DOM harness.
 
-**Live steps for all three are written and NOT RUN:**
-`docs/smoke-test-2026-08-05-m13-m15.md`. Parts B and C are the pair that matters
-— an adopted merge read back **with** `--adopt` (57/57) and **without** it
-(exactly 1 owed), then a plain merge read both ways with the values reversed.
-Either half alone would pass against a flag that does nothing. Part D's charset
-checks are live; its realism claim is **not hand-reachable** and the file says
-so rather than sending a session after it. Everything in that file is a
-prediction derived from the code at `a1d04e8`, not a result.
+**M13 IS OFF JEST-ONLY — Parts A, B and C PASSED on the dev project
+(2026-08-05).** `docs/smoke-test-2026-08-05-m13-m15.md` carries the steps and a
+status table. B and C are the pair that settles it: an adopted merge read back
+**with** `--adopt` (57/57) and **without** it (exactly 1 owed, the shared
+group's `displayName`, `want "S in GB", got "L in GB"`), then a plain merge read
+both ways with the values reversed. **Either half alone would have passed
+against a flag that does nothing**, which is why the false failure had to be
+reproduced deliberately rather than merely absent. REPORTED by the operator, not
+observed by a session — no container holds a credential.
+
+**Parts D (M14) and E (M15) are NOT RUN.** M14 and M15 remain jest-only.
+
+⚠️ **TWO STEPS OF THAT FILE WERE WRONG, and both were caught by an operator
+running them, not by review.** Neither was a defect in the code under test.
+**B3** asked for a per-conflict path count the panel does not render — those
+numbers were M8's canned-harness *totals* lifted into a step as though the page
+printed them per conflict. **D1** called `verify-merge.js` against an un-merged
+fixture to list seeded codes; its 57 claims describe a POST-merge tree, so most
+were owed by definition. Part D now reads the codes off the panel's own `code`
+column and checks the index with `integrity.js`'s `code-index-missing` /
+`code-index-dangling` — instruments that were already in the repo and answer the
+question actually being asked. **The generalisation, and it is the same one both
+times:** reaching for a familiar tool is not the same as checking it answers
+the question. Before asking an operator to read a value off a screen, find the
+line of markup that prints it.
 
 **M14's one live precondition was met before the merge.** Whether a seeded
 fixture was live on dev was UNKNOWN from a session container — there is no
