@@ -931,6 +931,34 @@ the failure mode this step exists to catch.
 Then `chmod 700 /tmp/ro-audit`, re-run, and confirm the purge proceeds and the
 dump lands — so the refusal was the permission, not a broken route.
 
+**OBSERVED 2026-08-05 — the refusal half, on a real filesystem.** Purging
+`smk-c4v1-follower` against a `chmod 500` audit dir failed with
+
+```
+Error: Error: EACCES: permission denied, open '/tmp/ro-audit/1785961312210-purge-smk-c4v1-follower.json'
+```
+
+and **the account was still fully present afterwards**. That is the half the
+step exists for: `writeAuditRecord` (`ops/server.js:662`) runs before
+`apply(plan)` (`:680`), so a pre-image that cannot be written stops the
+destructive write rather than preceding it.
+
+It also pins M4's branch on real hardware for the first time. `isEexist` tests
+`err.code === 'EEXIST'`; `EACCES` is not, so `writeExclusive` rethrows
+immediately after **one** attempt — no retry, no filename bumping. Every prior
+test of that branch drove a fake fs.
+
+⚠️ **The control did NOT pass, so this row is not yet complete.** After
+`chmod 700 /tmp/ro-audit` the purge failed with the same error. Until a
+writable run succeeds against the same `--audit-dir`, the refusal is attributed
+to the permission by its errno and path alone, not by contrast. Note a restart
+is **not** the missing ingredient — permissions are evaluated at `open(2)` and
+nothing here caches them. Two things to check before suspecting the panel:
+whether the directory is genuinely writable by the account running node
+(`touch /tmp/ro-audit/probe`, `ls -ld /tmp/ro-audit`, `id -un`), and whether the
+second error carries the **same** millisecond in its filename — if it does, it
+is the first failure's text, not a fresh attempt.
+
 **What this does NOT cover:** M5's 100-attempt cap. See "Nothing to smoke test".
 
 ### C6. SEC-1 — `codeIndex` is freed only for the account that owns it
@@ -1160,7 +1188,7 @@ row, and a row that owes something says so.
 | C2 | SEC-6 link-as-production revokes the derived account only | **PASS — OBSERVED 2026-08-05, both rows** | **Derived** `64b7c129…928c`: `03 Aug 10:09:56` → `05 Aug 19:49:09 GMT`, +207,553 s. **Phrase** `c45849d7…d04b`: post-link value `03 Aug 10:23:25 GMT`, predates the link → never revoked, *and* its `lastRefreshTime` is 7½ min before the revoke, so a demonstrably live session survived. Completes SEC-6 across **both** routes. |
 | C3 | G4 cascade agrees preview→execute; enumeration entry survives | **PASS — OBSERVED 2026-08-05** | reported verified by the operator; per-claim output not captured here |
 | C4 | M8 adopted merge (say which variant was run) | **PASS — OBSERVED 2026-08-05, FULL variant (ticked)** | **56 of 57**, sole owed claim `groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName` — want `"S in GB"`, got `"L in GB"`. That is M8 adopting the loser's name (working) and M13's false failure (expected), exactly as derived. Nothing else owed. |
-| C5 | M4 rethrow on a real fs; nothing written | | |
+| C5 | M4 rethrow on a real fs; nothing written | **PARTIAL — OBSERVED 2026-08-05, control outstanding** | `EACCES` on the pre-image write, one attempt, rethrown; `smk-c4v1-follower` **still fully present** afterwards — the half that matters. ⚠️ The `chmod 700` control still fails with the same error, so the refusal is attributed by errno and path rather than by contrast. Not a pass until a writable run succeeds against the same `--audit-dir`. |
 | C6 | SEC-1 `codeIndex` ownership on purge and merge | | |
 | D1 | SEC-1 charset rule live on dev | | |
 | D2 | G6 `.validate` refuses a dangling followee | | |
