@@ -64,13 +64,13 @@ live run can tell you that the suite has not already settled.
 | **G6** | rules `.validate` on `following/$followee` + client gate | rules emulator | **live on dev, never exercised** | D2, D3 |
 | **G8** | purge no longer refuses an account with no Auth record | jest + the run that found it | already observed live | — |
 | **G9** | `rotateCode` drops a dead followee from its fan-out | jest | never device-observed | D4 |
-| **G10** | redemption's refusable write runs first | jest | never device-observed | D5 |
+| **G10** | redemption's refusable write runs first | jest | little — the reorder only fires in a race window; see D5 | D5a |
 | **M3** | `canvasUids` shared helper | jest; **integrity run over live data 2026-08-05** | nothing further | B4 |
 | **M4** | non-`EEXIST` rethrow | jest (fake fs); **OBSERVED on a real filesystem 2026-08-05** | nothing further; fully exercised | C5 |
 | **M5** | 100-attempt filename cap | jest, fake fs only | nothing practical — see "Nothing to smoke test" | — |
 | **M8** | `adoptGroupNames` tick in the browser | jest + browser on canned responses; **OBSERVED against a live merge 2026-08-05** | nothing further; fully exercised | B2, C4 |
 | **M10** | jest pins the path `setFollowingEntry` builds | jest | nothing — it is a guard over two files | — |
-| **M11** | revocation clear + follow write in one atomic update | jest + rules emulator | the atomicity against the real backend | D5 |
+| **M11** | revocation clear + follow write in one atomic update | jest + rules emulator | the RTDB all-or-nothing behaviour it rests on, against the live backend (D5b). The redemption path itself is **not** hand-reachable — see D5 | D5b |
 | **M12** | jest guard tying the rules predicate to `followeeExists` | jest | nothing — it is a guard over two files | — |
 
 ## Prerequisites, by part
@@ -1240,66 +1240,106 @@ The filter fails **open** on an inconclusive read (`js/db/social.ts:422`,
 `.catch(() => true)`) — a network error keeps the followee rather than dropping
 it. So a rotation done offline-ish is not a counter-example.
 
-### D5. G10 + M11 — redemption's refusable write runs first, atomically
+### D5. G10 + M11 — what is reachable by hand, and what is not
 
-1. create an invite as **C**, then delete C's account;
-2. as **R**, redeem C's now-dangling invite link.
+⚠️ **Read this before running anything.** Earlier drafts of this step asked for
+something that cannot be done manually, which is why it did not make sense.
 
-**Expect:** the redemption **fails**, and leaves **nothing** behind — in
-particular no `users/{C}/followers/{R}` row. Before G10 `registerAsFollower` ran
-first and succeeded, leaving an asymmetric follower row pointing at a vanished
-creator.
+`redeemPersonalInvite` calls `getCreatorCode` (`js/db/social.ts:98`), which reads
+`users/{C}/presence/code` — **the same node the G6 rule checks**. So if the
+creator is purged, redemption returns `{ok: false, reason: 'creator-missing'}`
+at `js/invites.ts:202` and **never reaches either write**. Both fixes live past
+that point:
 
-#### M11 — the atomicity half, and it needs SETUP
+- **G10** reordered the two writes so the *refusable* one runs first;
+- **M11** made the revocation clear part of that same refusable write.
 
-`setFollowingEntryClearingRevocation` (`js/db/social.ts:331-335`) issues the
-revocation clear and the following write as **one** multi-path `update()`. The
-property to observe is that a refused redemption leaves the revocation key
-**exactly where it was**.
+Both therefore only fire in a **race**: the creator alive at the `getCreatorCode`
+read and gone by the time the write lands, a window milliseconds wide. **Neither
+is hand-reproducible**, and that is a property of where the fixes sit, not a gap
+in this page. They are pinned by jest and the rules emulator, which is the right
+level for them.
 
-⚠️ **There is nothing to observe unless `revocations/{R}/{C}` already exists**,
-and in a fresh test it does not — a revocation row is only written when the
-followee **revokes** a follower. An earlier draft of this step said to check it
-"if it existed" without saying how to make it exist, so this half was
-unrunnable. Plant it first.
+What a live run *can* add is below. Two parts, and they answer different
+questions.
 
-**R can write it directly** — `database.rules.json`'s `revocations/$revoked/$revoker`
-allows `auth.uid === $revoker || auth.uid === $revoked`, so the revoked account
-may write its own row, and `.validate` requires the value to be exactly `true`.
-Using the **D0 harness**, signed in as **R**:
+#### D5a — a dangling invite is refused and writes nothing
 
-```js
-const C = '<the dead creator uid>';
-console.log(await rtdb(`revocations/${UID}/${C}`, 'PUT', true));  // expect 200
-console.log(await rtdb(`revocations/${UID}/${C}`));               // expect true
-```
+1. Signed in as **C**, create a personal invite through the UI. Copy the link —
+   it is `…/invite?i=<token>`. Note C's uid and R's uid.
+2. **Purge C** through the ops panel.
+3. Signed in as **R**, open the invite link.
 
-Now redeem C's dangling invite. It must fail, as above. Then:
+**Expect:** redemption fails and the app reports the invite as dead. That is the
+`creator-missing` guard, *not* G10's reorder — worth stating in the results row,
+because "the redemption failed" reads like G10 and is not.
 
-```js
-console.log(await rtdb(`revocations/${UID}/${C}`));               // expect STILL true
-```
+4. Confirm nothing was written under the purged creator. `users/{C}` must be
+   **entirely absent** — R cannot read it (the rules gate `users/$uid` on
+   `auth.uid === $uid`), so check it in the Firebase console or with the Admin
+   credential. A resurrected `users/{C}/followers/{R}` is the shape G10 exists to
+   prevent; here it should never have been attempted at all.
 
-**Expect `true`.** A non-atomic implementation would clear the revocation and
-then fail the following write, dropping the watcher's cleanup of a stale
-own-side follow — which is the defect M11 closed. The clear and the refusable
-write go up together or not at all.
+#### D5b — the atomic multi-path refusal, against the REAL backend
 
-⚠️ **The control:** confirm the same planted key IS cleared by a redemption that
-**succeeds**. Plant `revocations/{R}/{live}` for a creator who still exists,
-redeem that invite, and the key must be gone. Without it, a revocation that
-survives proves only that something failed — not that the update was refused
-whole. Same rule as every other step in this part.
+This is the part worth running. Both fixes rest on one backend behaviour: **RTDB
+rejects a multi-path update WHOLE when a single path fails a `.validate`.** That
+assumption is currently pinned by the **rules emulator** only. This exercises it
+against the live project, deterministically, with no race — by issuing the same
+shaped write the client would, rather than trying to make the client issue it.
 
-**Clean up** any revocation row you planted that a redemption did not consume:
+Uses the **D0 harness**, signed in as **R**. `DEAD` is any uid with no account:
 
 ```js
-console.log(await rtdb(`revocations/${UID}/${C}`, 'DELETE'));
+const DEAD = `nobody${Date.now()}`;
+
+// 1. plant a revocation row — R may write its own (rules: auth.uid === $revoked)
+console.log(await rtdb(`revocations/${UID}/${DEAD}`, 'PUT', true));   // expect 200
+console.log(await rtdb(`revocations/${UID}/${DEAD}`));                // expect true
+
+// 2. the multi-path update setFollowingEntryClearingRevocation issues:
+//    one refusable path + one that would otherwise succeed
+const patch = async (followee, body) => {
+  const r = await fetch(`${DB}/.json?auth=${TOKEN}`, { method: 'PATCH', body: JSON.stringify(body) });
+  return `${r.status} ${await r.text()}`;
+};
+console.log(await patch(DEAD, {
+  [`userPrefs/${UID}/following/${DEAD}`]: { code: 'ZZZZZZ', label: 'x' },
+  [`revocations/${UID}/${DEAD}`]: null,
+}));                                                                  // expect 401
+
+// 3. the revocation must have SURVIVED — this is M11's property
+console.log(await rtdb(`revocations/${UID}/${DEAD}`));                // expect STILL true
 ```
 
-The rules emulator already settled the assumption underneath this (RTDB rejects a
-multi-path update **whole** when one path fails a `.validate`). What D5 adds is
-that the deployed rules and the deployed client agree about it.
+**Expect** `401 Permission denied` on the PATCH and the revocation still `true`.
+If the revocation came back `null`, RTDB applied part of the update — the clear
+landed while the following write was refused — and **M11's fix does not hold on
+the real backend**, which would be a genuine finding.
+
+**The control — the same update must land WHOLE when it is allowed.** Pick a
+followee who really exists (`LIVE`), plant a revocation for them, and run the
+identical PATCH:
+
+```js
+const LIVE = '<a uid whose account exists>';
+console.log(await rtdb(`revocations/${UID}/${LIVE}`, 'PUT', true));   // 200
+console.log(await patch(LIVE, {
+  [`userPrefs/${UID}/following/${LIVE}`]: { code: 'ZZZZZZ', label: 'control' },
+  [`revocations/${UID}/${LIVE}`]: null,
+}));                                                                  // expect 200
+console.log(await rtdb(`revocations/${UID}/${LIVE}`));                // expect null — cleared
+```
+
+Without the control, a surviving revocation shows only that *something* was
+refused, not that the update is atomic.
+
+⚠️ **Clean up** — the control really does add a following entry:
+
+```js
+console.log(await rtdb(`userPrefs/${UID}/following/${LIVE}`, 'DELETE'));
+console.log(await rtdb(`revocations/${UID}/${DEAD}`, 'DELETE'));
+```
 
 ---
 
