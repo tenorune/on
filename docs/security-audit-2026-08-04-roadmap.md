@@ -530,6 +530,22 @@ affect the correctness of a destructive write?).
 
 - `database.rules.json` `users/$uid/invites/$token/redemptionsUsed` grants
   `.write: "auth != null"`, and `.validate` is skipped for writes *below* it.
+
+  ⚠️ **Re-examined 2026-08-06, and this classification is CONFIRMED — but a
+  second audit had escalated it wrongly first, so the settling fact is recorded
+  here rather than left to be re-derived.** That audit argued the stranger's
+  increment burns the invite's redemption budget. **There is no budget.**
+  `redemptionCap` is hardcoded `null` at both creation sites (`js/invites.ts:137`
+  and `:415`) and set nowhere else, and every enforcement site is guarded by
+  `invite.redemptionCap != null` (`js/invites.ts:193`, `:468`,
+  `functions/group-join.js:41`), so the check never fires. The counter is inert.
+  The phantom-node half is weaker still: only the `redemptionsUsed` leaf is
+  writable by a stranger (writing any sibling is DENIED — confirmed on the rules
+  emulator), so a planted node can never carry `scope`, and
+  `findActivePersonalInvite` (`js/invites.ts:105`) requires `scope === 'personal'`
+  and skips it. Storage-injection nuisance, exactly as filed. **The lesson is the
+  audit's own, one more time:** the escalation came from reading the rule and the
+  enforcement site without checking whether the field they gate is ever set.
 - `users/$uid/followers/$follower` (and `followerNames/$follower`) let a follower
   write an unvalidated subtree at `users/{V}/followers/{me}/x` (ancestor-skip).
 

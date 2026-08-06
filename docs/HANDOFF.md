@@ -11,26 +11,65 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**START HERE: nothing is owed, and nothing on the ledger is unruled.** The three
-items that were unruled — **M13, M14 and M15** — were **put to the operator,
-ruled DO, and built on 2026-08-05**. The live smoke test of everything closed
-since the last one is **COMPLETE**: `docs/smoke-test-2026-08-04.md`, every step
-run against the dev project across 2026-08-04/05. Parts A, B, C and E pass;
-Part D passes except D5a, which is partial *by nature* rather than for want of
-running (see below).
+🛑 **START HERE: ONE THING IS OWED, and it is the operator's, not a session's —
+an UNMERGED branch carrying three deploy surfaces.** This file said "nothing is
+owed" from 2026-08-05 until 2026-08-06, and that sentence is now false. A
+security audit on 2026-08-06 closed **G11** and **G12** and filed **M16, M17,
+M18** unruled. See "Branch status (2026-08-06, LATEST)" below before anything
+else: `claude/knockknock-handoff-bd6bfo` is at `c9d503d`, three commits ahead of
+`origin/dev`, pushed and green, and **nothing in it is live anywhere** — not even
+on the dev project.
 
 **What is open:**
 
 | | |
 |---|---|
+| **The merge decision** | `claude/knockknock-handoff-bd6bfo` → `dev`. **THE OPERATOR'S.** It ships **rules + `js/` + `functions/`** — unlike every merge since 2026-08-03, this one is not a no-op. |
+| **M16, M17, M18** | **UNRULED**, filed 2026-08-06. Filed is not queued. 🛑 **Do not start one without a ruling** — M13/M14/M15 are the precedent: they sat unruled until the operator ruled them DO in session. |
 | **G1, M1, M2, M6, M7** | **WON'T FIX**, ruled 2026-08-03. Raise it before working one, not after. |
 | **G3 / #302** | **Parked**, and needs the operator's explicit in-session go-ahead — see the standing rule directly below. |
 
-So the honest reading is unchanged from the last handoff, and closing three
-items did not change it: **there is nothing on the ledger a session may start
-on its own.** If that leaves the choice empty, the answer is to ask, not to
-pick the biggest item. An emptier ledger is not a larger licence — it is the
-normal state of this repo.
+So the honest reading has changed in exactly one way, and not in the way that
+matters most: **there is still nothing on the ledger a session may start on its
+own.** Three unruled items is not three available items — it is the state
+M13/M14/M15 were in, and the answer then was to put them to the operator. If the
+choice looks empty, ask. **An emptier ledger is not a larger licence, and a
+fuller one is not a queue.**
+
+**What the 2026-08-06 audit found, and what it got wrong**, because the second
+half is the more useful record:
+
+- **G11** — `codeIndex/$code`'s write rule checked only the incoming value, so
+  any signed-in account could repoint another user's live entry at itself. Every
+  later "add person" for that code then landed on the attacker, and the victim
+  could not recover. **Pre-existing, identical on `main`** — the gap SEC-1 left
+  when it fixed the three Admin-SDK sinks and not the client rule. Reachable by
+  any **co-member** of a shared group, since `groups/$gid` yields uids and
+  `users/$uid/presence` is world-readable to authed users.
+- **G12** — `inviteIndex/{token}` was repointed and released from key sets an
+  attacker controls, at **four** sinks, three of them behind public callables.
+  Also pre-existing; what changed recently was the *payoff*, when fixing the
+  entry's shape turned corruption into working takeover.
+- ⚠️ **Half the audit's own findings did not survive verification.** Two of four
+  from the tooling run were refuted (attribution wrong in one, causation wrong in
+  the other), and two of five from the hand pass were wrong on the facts — one
+  claimed an invite **redemption budget** that does not exist (`redemptionCap` is
+  hardcoded `null` at both creation sites), and one treated a **public** repo's
+  source disclosure as if it were a leak. **The operator caught both by asking
+  how the thing would actually happen.** That is now the fourth consecutive
+  review wave in this repo where a written finding was a hypothesis; the
+  correction is recorded in the roadmap's appendix and in each entry.
+- ⚠️ **`/security-review` could not run against the branch as-is** —
+  it resolves `origin/HEAD...`, which needs a merge base the shallow clone cannot
+  produce. It was run by cutting a throwaway branch at `origin/main` and
+  committing `dev`'s tree onto it, so the range resolved to the real 80-file
+  delta. That scaffolding was deleted; the technique is the reusable part.
+
+**Verification boundary for both closures: jest + the rules emulator. NOTHING
+RAN LIVE.** G11's takeover is OBSERVED on the emulator; its exploit chain was
+traced through source, never executed. G12 is jest-only, and the new merge
+conflict has never been RENDERED — `panel.html` has no DOM harness. No session
+container has ever held a service-account credential.
 
 **What the three closures shipped** (full entries, including what each
 deliberately does not claim, in `docs/operator-panel-followups.md`):
@@ -106,7 +145,58 @@ in the operator panel now revokes, which bounds that window but cannot close it
 — only the rules can. If the go-ahead is given, start from the measurement in
 the followups doc, not from folklore.
 
-**Branch status (2026-08-06, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
+**Branch status (2026-08-06, LATEST): `claude/knockknock-handoff-bd6bfo` PUSHED,
+NOT MERGED — three commits, and the merge is the operator's.** `origin/dev` has
+NOT moved; it is still `f84b325`. The branch is at `c9d503d`, cut from
+`origin/dev` at `f84b325`, local and remote identical, working tree clean.
+
+| | |
+| --- | --- |
+| `27013b9` | **G11** — the `codeIndex` takeover, both halves (the rule, and `lookupCode`'s cross-check) |
+| `551c1a4` | **G12** part 1 — the two `inviteIndex` **repoint** sinks |
+| `c9d503d` | **G12** part 2 — the two `inviteIndex` **release** sinks, the merge conflict, and the shared `inviteIndexOwnership` helper |
+
+🛑 **THIS MERGE IS NOT A NO-OP, AND THAT MAKES IT THE FIRST SINCE 2026-08-03.**
+The last five merges shipped nothing — docs, `functions/ops/**`, tests — and this
+file has said "do not generalise that to the next merge" each time. **This is the
+next merge.** Verified by filename, not inferred:
+
+| file | surface |
+| --- | --- |
+| `database.rules.json` | **RULES** — binds every client the moment it deploys, including ones nobody can update |
+| `js/db/social.ts` | **HOSTING** — `js/` is exactly what Hosting serves |
+| `functions/telegram-auth.js`, `functions/telegram-shared.js` | **FUNCTIONS** — top-level, in the deploy archive |
+| `functions/ops/merge.js` | none — `ops/**` is excluded via `functions.ignore` |
+| 5 test files — `functions/test/{graduate-invite-index,ops-expunge-build,ops-merge}.test.js`, `tests/db.test.js`, `tests/rules/membership.test.js` | none |
+
+So merging to `dev` deploys **all three surfaces** to the dev project, ungated
+(`deploy-dev.yml`, push to `dev`, no approval gate). Prod stays behind
+`deploy-prod.yml`'s required reviewer until `dev` → `main`, which is the
+maintainer's.
+
+⚠️ **Pushing the BRANCH deployed nothing, and that was checked rather than
+assumed.** Both workflows trigger only on `branches: [dev]` / `[main]`, and the
+Actions API reported `total_count: 0` runs for this branch after the push.
+
+**Green bar OBSERVED at `c9d503d`** on a fresh container after the documented
+`npm ci`: functions **1136/1136** (34 suites) · rules (emulator) **121/121** (12)
+· web jest **2153/2153** (88) · `typecheck` + `typecheck:scripts` clean, **zero**
+new suppressions · `node scripts/prod.js` builds. Every delta is a new test
+against the `f84b325` baseline — **+13 functions, +2 rules, +4 web (19 total)**.
+Each *guard* was watched failing before its implementation existed; the *controls*
+pass on both sides by construction and are labelled as controls in the test
+bodies.
+
+⚠️ **One defect in this work was caught by the FULL suite and by nothing else.**
+The first `inviteIndex` guard read `.ownerUid` off entries that can be a legacy
+bare uid **string**, which would have permanently stranded every legacy token its
+real owner tried to move or release. All four targeted tests passed against it;
+`telegram-auth.test.js:583` — a pre-existing test in an untouched file — failed.
+**Running only the suites you changed would have shipped it.** The documented
+gates already require the full runs; the targeted run was just faster to reach
+for.
+
+**Prior branch status (2026-08-06): `claude/knockknock-unruled-decisions-ak3gaa`
 MERGED TO `dev` AND PUSHED THREE TIMES, at the operator's explicit instruction.**
 `origin/dev` moved `59f1a51` → `a1d04e8` (the three items and their docs), then
 → `dca91e1` (the smoke-test steps, two corrections, the Part A–C result), then
@@ -252,6 +342,14 @@ merge to `dev` shipped `database.rules.json` via
 `.github/workflows/deploy-dev.yml`. It is the fourth prod-undeployed behaviour
 change (see the branch-status note below). Deployed is not verified, and
 undeployed-to-prod is not undeployed — keep the two apart.
+
+⚠️ **DATED RECORD (2026-08-03), and its headline claim has since gone false —
+left as written, like the ledger's own dated queue section.** "NO BUILD WORK IS
+OWED ON THIS REPO AT ALL" was true when written. As of **2026-08-06** three
+unruled items (M16-M18) are filed and a branch is pushed and unmerged; read
+"What's next" at the top of this file for the current inventory. Everything else
+below still stands — G3 is still parked, and still requires the operator's
+explicit in-session go-ahead.
 
 **G3 IS PARKED AS [#302](https://github.com/tenorune/on/issues/302)
 (2026-08-03), so NO BUILD WORK IS OWED ON THIS REPO AT ALL.** It is spec-first

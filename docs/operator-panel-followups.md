@@ -15,12 +15,24 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Six open, twenty closed — **the whole build queue closed on 2026-08-03**
-(G4, M12, M5, M4, M3, M8), and **M13, M14 and M15 closed on 2026-08-05**. All
-six that remain are ruled: five WON'T FIX (G1, M1, M2, M6, M7) and one (G3)
-parked as #302. The rulings are stamped in the Weight column below and on each
-entry, and the build order is in "The next session's queue" directly under this
-table. **Read the queue rather than this table if you are here to work.**
+Nine open, twenty-two closed — **the whole build queue closed on 2026-08-03**
+(G4, M12, M5, M4, M3, M8), **M13, M14 and M15 closed on 2026-08-05**, and
+**G11 + G12 closed on 2026-08-06** by the security audit below. Six of the nine
+open are ruled: five WON'T FIX (G1, M1, M2, M6, M7) and one (G3) parked as #302.
+**Three are UNRULED — M16, M17, M18**, filed 2026-08-06 and awaiting the
+operator. The rulings are stamped in the Weight column below and on each entry.
+
+🛑 **UNRULED IS NOT STARTABLE.** M16-M18 are filed, not queued. M13/M14/M15 are
+the precedent for how that ends: they sat unruled until the operator ruled them
+DO *in session*. Do not pick one up because it is the only thing here without a
+verdict — that is the exact reasoning the G3 block below exists to refuse.
+
+⚠️ **G11 and G12 are CLOSED but NOT MERGED, which no prior closed item on this
+table has ever been.** Every other CLOSED row is on `dev`. These two are three
+commits on `claude/knockknock-handoff-bd6bfo` (`27013b9`, `551c1a4`, `c9d503d`),
+pushed and green, and the merge is the operator's. Until it happens the fixes are
+live nowhere — including on the dev project. Read the branch note in
+`docs/HANDOFF.md` before assuming either behaviour is in effect.
 
 ✅ **THE THREE UNRULED ITEMS WERE RULED AND BUILT (2026-08-05).** M13, M14 and
 M15 were filed 2026-08-04/05 and sat unruled — a state this table had no prior
@@ -110,6 +122,11 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **M13** | ~~The merge leg's verifier encodes pre-M8 behaviour, so an adopted merge reports a FALSE failure~~ | `ops/merge-fixture.js`, `ops/verify-merge.js` | **CLOSED** (2026-08-05, route **(b)**) — the claims take an `adopt` argument and the CLI a `--adopt` flag; see below |
 | **M14** | ~~The merge fixture seeds `presence/code` values SEC-1's charset rule forbids~~ | `ops/merge-fixture.js` (`fixtureCodes`) | **CLOSED** (2026-08-05, **both** halves) — the codes are upper-cased, and a new guard derives the charset FROM `database.rules.json`; see below |
 | **M15** | ~~The panel's `created` column is the AUTH record's creation time, so a re-bootstrapped account reads days old~~ | `ops/project.js:63`, `ops/panel.html:38` | **CLOSED** (2026-08-05, route **(a)**) — the column is labelled `auth created` and says why on hover; see below |
+| **G11** | ~~Any signed-in account could repoint another user's `codeIndex` entry at itself~~ | `database.rules.json` + `js/db/social.ts` | **CLOSED** (2026-08-06, `27013b9`) — **whole-app**, not a panel item. Pre-existing, identical on `main`. ⚠️ **NOT merged** |
+| **G12** | ~~`inviteIndex/{token}` was repointed and released from key sets the attacker controls, under the Admin SDK~~ | `functions/telegram-auth.js`, `functions/ops/merge.js` | **CLOSED** (2026-08-06, `551c1a4`+`c9d503d`) — four sinks, one shared ownership helper. ⚠️ **NOT merged** |
+| **M16** | `.ops-audit/` sits inside the functions deploy archive | `firebase.json`, `ops/server.js:67` | **UNRULED** (filed 2026-08-06) — hardening; CI cannot hit it, a local deploy can |
+| **M17** | `esc()` does not escape `'` | `ops/panel.html:64` | **UNRULED** (filed 2026-08-06) — latent, no current sink |
+| **M18** | Ops responses carry no `nosniff`; the body reader has no size cap | `ops/server.js:906,969` | **UNRULED** (filed 2026-08-06) — both bounded by the loopback-only boundary |
 
 ---
 
@@ -453,6 +470,129 @@ against them. Only the third is an open item.
 
   The general lesson is worth more than the item: a deferral is only as good as
   the reading it rests on, and this one had never been in front of live data.
+
+### G11 — any signed-in account could take over another user's share code — CLOSED
+
+**CLOSED (2026-08-06, `27013b9`). Whole-app, not a panel item** — it sits here
+because this file is the ledger with stable IDs, the same reason G3 does.
+⚠️ **On an UNMERGED branch**; see the note under the table above.
+
+**PRE-EXISTING — the rule is byte-identical on `origin/main`.** Nothing recent
+introduced it, and this is the gap **SEC-1 left open**: SEC-1 closed the three
+*Admin-SDK sinks* that act on `codeIndex`, and did not touch the client rule.
+
+**What was wrong.** `codeIndex/$code`'s `.write` checked only the INCOMING value
+(`newData.val() === auth.uid`) and never looked at `data`, so "point a code at
+your own uid" also permitted pointing **someone else's live entry** at your own
+uid. **OBSERVED against the rules emulator**, not read off the rules text: the
+overwrite was ALLOWED, against controls that must go the other way (claiming a
+free code allowed, pointing at another uid denied, deleting an entry you do not
+own denied). `tests/rules/membership.test.js` had covered the second of those and
+not the overwrite.
+
+**Why it was reachable, which is the part worth keeping.** The attacker needs the
+victim's 6-char code, and does not need to be given it: `groups/$gid` is readable
+by any member, which yields every co-member's uid, and `users/$uid/presence` is
+`.read: "auth != null"`, which yields that uid's code. So **any co-member of any
+shared group could do this to any other member.** Brute force is the one route
+that does not work (36⁶ ≈ 2.2×10⁹ online reads).
+
+**What it was worth.** `lookupCode` (`js/db/social.ts`) returned the indexed uid
+with no cross-check, and `handleAddPerson` (`js/following.ts:1511`) feeds it
+straight into `registerAsFollower`. So everyone who typed the victim's code
+afterwards followed the **attacker**, publishing their own code and display name
+to them, while the UI showed the code they had typed. Existing contacts were
+unaffected — following entries hold uids — so it hijacks *new* adds only.
+**The victim could not recover:** `rotateCode`'s release of the old code
+(`js/db/social.ts:449`) needs `data.val() === auth.uid`, now false, and the
+failure is swallowed by `.catch(() => {})`.
+
+**Fixed in two halves, because the rule alone is not enough.**
+- `database.rules.json` also requires `(!data.exists() || data.val() ===
+  auth.uid)`. Re-asserting a claim you already hold still works, which the
+  rotate/retry paths need, and that is its own control case.
+- `lookupCode` confirms the account the index names actually advertises the code.
+  The rule cannot **un-hijack an entry taken over before it ships**, and this is
+  the only consumer — so a stale takeover now resolves to `null` ("code not
+  found") instead of routing to the attacker, the victim rotates to a fresh code,
+  and the stolen entry is inert. It **fails OPEN** when the account advertises no
+  code at all: only a demonstrated disagreement refuses, since a codeless account
+  is already unfollowable under the G6 referent rule and refusing here would turn
+  an unreadable presence node into a bogus "code not found".
+
+**Verification boundary.** Rules emulator + jest. **No live project** — no session
+container has ever held a service-account credential. The takeover itself is
+OBSERVED on the emulator; the end-to-end chain (co-member reads code → overwrites
+→ third party adds and lands on the attacker) was **never executed**, only traced
+through source. Each guard was watched failing before it existed.
+
+### G12 — `inviteIndex` was written from key sets the attacker controls — CLOSED
+
+**CLOSED (2026-08-06, `551c1a4` + `c9d503d`).** ⚠️ **On an UNMERGED branch.**
+
+**The class, not the instance.** `inviteIndex/{token}` is the global table that
+resolves a circulating invite link: both `functions/invites.js:24-33` and
+`js/invites.ts:185` take `creatorUid` from the entry's `ownerPath`. Four sinks
+wrote it from key sets an attacker fully controls, all under the Admin SDK where
+the rules that scope an index write to its owner **do not apply**:
+
+| sink | key set | reachable by |
+|---|---|---|
+| `graduateAccountData` repoint | `users/{uid}/invites` | the public `graduateTelegram` |
+| `buildExpungeWrites` per-account release | `users/{uid}/invites` | the public `unlinkTelegram` |
+| `buildExpungeWrites` owned-group release | `groups/{gid}/invites` | the public `unlinkTelegram` |
+| `buildMergePlan` repoint | `users/{L}/invites` | the operator panel |
+
+The rules constrain nothing about KEYS under `users/$uid/invites`
+(`database.rules.json:32-38`) or under `groups/$gid/invites`, so a holder plants a
+victim's live token and the sink acts on it. **Repointing** hands the victim's
+still-circulating link to the attacker; **releasing** frees the token, and
+`claimInviteToken` then lets anyone re-claim it — so the deletion half is a
+takeover by another route, not merely vandalism.
+
+⚠️ **The missing check is PRE-EXISTING; what changed recently is the payoff.**
+The old graduation wrote a bare uid **string**, leaving `scope` undefined, so
+redemption failed closed (`functions/invites.js:27,35`) — the victim's link died
+and the attacker gained nothing. Fixing the shape to a well-formed record turned
+index corruption into working takeover. Do not read this entry as "a regression
+was introduced": the ownership gap predates it, the *consequence* did not.
+
+**The two release sinks use DIFFERENT tests, and that is the substance.** The
+per-account sweep checks `ownerUid === uid` or `ownerPath ===
+users/{uid}/invites/{token}`. The owned-group sweep checks **`ownerPath` only and
+deliberately not `ownerUid`** — that sweep exists to release tokens *other
+members* issued (pinned by the pre-existing `gtok2` case), so ownership is the
+wrong question; what makes an entry the group's is that it resolves into the
+group. Guarding it on `ownerUid` would have broken the behaviour it was added for.
+
+**One shared helper, because five sinks were about to hold the same
+assumption.** `inviteIndexOwnership` (`functions/telegram-shared.js`) is the one
+place that knows both entry shapes. This is the enumerator rule (see "Why the
+enumerator rule exists") applied before the third defect rather than after it.
+
+⚠️ **A legacy entry is a bare uid STRING, and the first version of the guard
+stranded them.** Reading `.ownerUid` off a string yields `undefined`, so the
+guard refused to repoint tokens an account genuinely owned — permanently, since
+the entry carries no `ownerUid` for the rules to authorise a release either.
+**Caught by a pre-existing test in a file the change never touched**
+(`telegram-auth.test.js:583`, whose fixture seeds the legacy shape at `:531`) and
+**only by running the full suite** — all four targeted tests passed against the
+broken guard. Ownership is now read from the string, with a control pinning the
+other direction so the normalization cannot degrade into "a string is always
+ours", which would have re-opened the hijack.
+
+**A refused repoint in `buildMergePlan` is REPORTED, not skipped silently** — an
+`invite-index-unowned` conflict naming the token and the owner the index really
+resolves to. A plan that quietly does less than it says is one the operator
+cannot audit, which is G4's reasoning about cascades applied to a refusal.
+`Conflict.kind` is an open `string` and `panel.html:218` renders conflicts
+generically, so it surfaces with no UI change; a control pins that an ordinary
+token move stays quiet, or the signal becomes noise.
+
+**Verification boundary.** Jest only — **no live project, no browser**. The merge
+conflict has never been RENDERED; `panel.html` has no DOM harness. Every guard
+was watched failing before it existed; the controls pass on both sides by
+construction and are labelled as controls.
 
 ### G4 — a pre-image cannot undo a cascade the purge only triggered — CLOSED
 
@@ -1111,6 +1251,20 @@ that certifies the write counts too.
 | **M13** — **CLOSED** | `ops/merge-fixture.js:469`, `ops/verify-merge.js` | The merge leg's read-back encodes **pre-M8** behaviour. The claim reads `groups/{GB}/members/{S}/displayName` `equals` `'S in GB'`, with the rationale *"the shared group is a collision and the survivor's record wins — **panel.html sends no adoptGroupNames**"*. That rationale was true when written and is false since **M8** (`17945c3`), which is exactly what `panel.html` now sends. `verify-merge.js` has no `--adopt` flag and no way to be told the operator ticked, so a merge executed **with** an adoption ticked reports **56 of 57** — one FALSE failure, on the leg whose entire purpose is telling real residue from noise. The stale half is the comment as much as the assertion: a reader who checks *why* the claim is what it is gets told the panel cannot do something it has done since 2026-08-03. | **Filed 2026-08-04, not ruled. CONFIRMED LIVE 2026-08-05.** Found by reading `merge-fixture.js` against `panel.html` while deriving the M8 step of `docs/smoke-test-2026-08-04.md` — nothing was run, and the entry said so, because a claim derived from two files is weaker than a sighting. ⚠️ **That caveat is now spent: the false failure has been reproduced.** Step C4 was run on the dev project with the adopt box ticked, and `ops/verify-merge.js --tag c4v1` reported `1 OF 57 CLAIM(S) OWED: ✗ groups/smg-c4v1-shared/members/smk-c4v1-survivor/displayName — want "S in GB", got "L in GB"` — the predicted path, the predicted expected value, the predicted actual value, and a count of exactly **one**. The same run is M8's own live confirmation, since `L in GB` is the loser's per-group name being adopted, which is what the tick is for. **The count of one is the load-bearing half of the observation**: it shows the adoption changes precisely the record it should and nothing else, so the failure really is the verifier's stale expectation rather than a merge defect. ⚠️ **Do not read `56 of 57` as a merge defect** if you meet it before this is fixed; confirm the one failing value is the LOSER's per-group name, which is M8 working. Two candidate fixes, and the cheap one is not obviously right: (a) correct the comment only — honest, one line, and leaves the false failure in place for anyone who ticks; (b) give the fixture an adoption-aware expectation and `verify-merge.js` a flag to select it — closes the false failure, and costs a new flag on a CLI whose flag surface is already the thing operators get wrong (`--telegram` / `--repoint` / `--mapping-shape`). Cost (b) honestly before reaching for it; the ledger's own test — does it affect the correctness of a destructive write? — says **no**, but see the `2dec78c` precedent noted above this table. ✅ **CLOSED 2026-08-05 on route (b), by the operator's ruling.** `buildMergeAssertions` takes an `adopt` boolean and `ops/verify-merge.js` takes `--adopt`; with the flag, the shared group's claim expects the LOSER's per-group name, and the `why` explains itself by naming the tick rather than by denying it exists. One boolean rather than a gid list, because the fixture has exactly one colliding group by construction — the tightest thing that closes it. The stale rationale was **four** sites, not the one this entry named: the claim's `why` (`:469`), the file header, the operator-facing seed note printed by `seed-merge-fixture.js`, and the test file's own header and test name. Re-deriving found the extra three; the entry was written from the two files it had read. ⚠️ **The flag surface cost was real and is paid down, not waved away**: `--adopt` is the fourth flag on a CLI whose flags are what operators get wrong, so it gets the same pre-credential discipline as `--mapping-shape` — a value after it (`--adopt <gid>`, the plausible mistake, since every neighbouring flag takes one) is REFUSED by name rather than silently ignored, and a failing run without the flag now prints the M13 shape as a named cause to rule out before reading the owed claim as a defect. **Verified by planting four violations, never by passing**: `adopt` dropped at the `buildMergeAssertions` call site (1 red — the parsed-and-dropped-on-the-floor shape M8 was), the option ignored inside the builder (2), the value refusal removed (1), and the stale rationale restored (1); both production files byte-identical after every revert. ⚠️ **What it does NOT cover:** jest only. Whether the flag reaches the builder at RUN time is unreachable in a container with no service-account credential, so that one seam is pinned by a source assertion over the CALL — the honest limit, stated in the test. The false failure itself is reproduced in jest with the same path, want, got and count of one that the dev project produced. ✅ **NO LONGER JEST-ONLY — the fix ran on the dev project 2026-08-05** (Parts A, B and C of `docs/smoke-test-2026-08-05-m13-m15.md`), which is the caveat directly above being spent for the second time on this item. Both directions were exercised on their own fixtures: an **adopted** merge read back with `--adopt` holds 57/57 and without it reports exactly the one predicted claim owed; a **plain** merge read back with no flag holds 57/57 and with `--adopt` reports the same one claim with the values **reversed**. ⚠️ **The reversed pair is the load-bearing half** — a flag that did nothing at all would have satisfied both of the passing runs, so the false failure had to be reproduced deliberately on each route rather than merely be absent. The `--adopt <gid>` refusal was exercised too, with the bare flag as its control (accepted, reaching the credential error rather than an argument one). REPORTED by the operator; no session container has ever held a credential, so nothing here was observed by the session that built it. **M14 and M15 remain jest-only** — Parts D and E are written but not run. |
 | **M14** — **CLOSED** | `ops/merge-fixture.js` (`fixtureCodes`) | The fixture seeds `presence/code` values that the **SEC-1** charset rule forbids. `fixtureCodes` builds `` `SMK${tag}${role}` `` and the tag is validated `^[a-z0-9]{1,16}$`, so every seeded code carries lowercase — `SMKrun1L`, `SMKrun1P1`, and so on for all six accounts — while `database.rules.json:25` has required `^[A-Z0-9]{1,32}$` since SEC-1 (`1ae38a8`). Seeding still works and the merge leg is unaffected, both for the same reason: the Admin SDK bypasses rules entirely. What is lost is **realism** — the fixture now writes a database state no client could produce, so those accounts cannot be used to exercise any rules-validated client write, and a future fixture path that goes through a client (or through the emulator) fails for a reason that has nothing to do with the merge under test. | **Filed 2026-08-04, not ruled.** Derived by running `fixtureCodes('run1')` and testing each output against the shipped rule; every one is invalid, and by construction rather than by luck — the tag regex is lowercase-only, so no tag produces a valid code. **The same shape as the audit's own lesson, running the other way:** a *fixture* written before a rule describes the world without that rule, just as a prescription written before its dependency does. SEC-1 shipped 2026-08-04, the fixture 2026-08-03, and nothing connects them — no test asserts the fixture's own writes satisfy the rules it seeds under. The one-line fix is to upper-case the tag inside `fixtureCodes` (`` `SMK${tag}${role}`.toUpperCase() ``), which changes every seeded code and therefore every `--clean` derivation — so it is **not** safe to apply while a seeded fixture is live on dev; clean first, or the old codes strand. A guard asserting the fixture's write-set satisfies `database.rules.json` is the larger and more durable version, and is the one that catches the next rule. ✅ **CLOSED 2026-08-05 — BOTH halves, by the operator's ruling.** `fixtureCodes` upper-cases, and `functions/test/ops-merge-fixture-rules.test.js` walks the fixture's write-set against the charset validations it PARSES out of `database.rules.json`. The parse is the point: restating `^[A-Z0-9]{1,32}$` in the test would have re-created the original defect one file over, since the fixture and the rule would still be two hand-written copies with nothing tying them (**M12**'s lesson, applied to a fixture instead of a client). **Scope, stated in the file rather than implied:** this is not a rules interpreter. It reads the charset family — `.validate` clauses carrying a regex literal — and checks the fixture's leaves against every rule whose path names them. Length, type and `hasChildren` validations are NOT checked, and no `.write` predicate is. ⚠️ **A guard that silently checked nothing would be worse than none**, so the parse carries a control: the two regex rules the shipped file is known to hold must both be found, or the suite goes red rather than passing vacuously — the M8 failure mode, where a source assertion stayed green with its subject deleted. **Verified by planting three violations**: the lowercase derivation restored (2 red), the shipped rule TIGHTENED to letters-only so the existing codes stop satisfying it (2 red — the evidence it reads the rules file live and would catch the next rule rather than the last one), and the `.validate` rewritten out of regex shape so the parser finds nothing (2 red — the control firing); the fixture and `database.rules.json` byte-identical after every revert. ⚠️ **OPERATOR-FACING CONSEQUENCE, and it is not theoretical:** every seeded code changes, and `--clean` derives the `codeIndex/` keys it nulls from the same function. **A fixture seeded by an older build must be cleaned by that build**, or its lowercase index entries strand. Recorded at the function, and in `ops/README.md` where the `--clean` line lives. ⚠️ **That precondition was met before the change landed:** whether any fixture was live on dev was UNKNOWN from a session container — no credential here has ever existed — so it was put to the operator, who **reported the old fixtures cleaned up (2026-08-05)** and then instructed the merge. REPORTED, not observed: nothing in a session can see the dev project. **The constraint outlives those fixtures** — a pre-M14 fixture must always be cleaned by a pre-M14 build. ✅ **NO LONGER JEST-ONLY — Part D ran on the dev project 2026-08-06.** A fixture was seeded and read where it stood: the six codes are upper-case in the panel's own `code` column (with the code-filter as the control that tells "these are the strings" from "the page is stale"), `integrity.js` reports no `code-index-missing` for any of them against a control of exactly six `auth-missing` INFOs and nothing above INFO, and no `code-index-dangling` anywhere. **`--clean` then took the index entries with the accounts** — the six INFOs gone and no dangling warnings in their place, which is the strand hazard's own signature checked by its absence against a control that had just established the entries existed and resolved. ⚠️ **What Part D did NOT settle, and it is this item's ACTUAL claim: that a client could write those codes.** The fixture accounts are synthetic with no Auth record, so no token for them exists or can be minted by hand; D proves the codes are well-formed and the index symmetric, not that a rules-validated write would be accepted. That stays pinned in `ops-merge-fixture-rules.test.js`, by parsing the rules rather than restating them. REPORTED by the operator; nothing was observed by a session. |
 | **M15** — **CLOSED** | `ops/project.js:63`, `ops/deps.js` (`listAuthUsers`), `ops/panel.html:38` | The account table's **`created`** column is the **Firebase Auth record's** `creationTime` — `authByUid.get(uid)?.createdAt`, filled from `auth.listUsers` as `Date.parse(u.metadata.creationTime)`. Nothing in RTDB feeds it. An **expunge clears RTDB only** and never deletes the Auth record (neither does `link/production/execute`; only *purge* does, and only with the opt-in box), and the Telegram uid is deterministic — so the next Mini App open reuses the **existing** Auth record. The account's data is then seconds old while the column reads days. **Observed 2026-08-05** during step E1 of `docs/smoke-test-2026-08-04.md`: a freshly re-bootstrapped account read `2d 12h ago`. The column is accurate about what it measures; the defect is that its label does not say what that is, in a tool whose next action is destructive and where an operator scans this table to choose a target. | **Filed 2026-08-05, not ruled.** ⚠️ **Read M7's ruling before promoting this.** M7 — the production banner not naming the project inline — was ruled **WON'T FIX** as *duplication, not absence*. M15 is a different shape (a label that means something other than it says, with no second source of the truth on screen), but it sits in the same operator-ergonomics neighbourhood and may well be ruled the same way. Two routes, and the cheap one is the good one: **(a) rename the column** to name its source — `auth created`, or similar — one line in `ops/panel.html`, no new data, and it makes the divergence self-explaining rather than surprising. **(b) show an RTDB-derived created alongside it** — ⚠️ **there is no such field.** The schema's only creation timestamps are `groups/$gid/createdAt`, `pushTokens/$uid/$token/createdAt` (neither per-account) and `linkedAt`, which exists only for Telegram-linked accounts. A true per-account value would have to be *added* — written at bootstrap and graduation, so `functions/telegram-auth.js` plus the client plus a rules `.validate`, i.e. **two deployed surfaces** — and it would read null for every account that predates it, which is exactly the population an operator is looking at. Route (b) is not the cheap half it sounds like. A partial **(c)** — surface `linkedAt` where present — covers Telegram accounts only and adds a column for a subset. ✅ **CLOSED 2026-08-05 on route (a), by the operator's ruling.** The header reads **`auth created`** and carries a `title` naming the whole divergence — the Auth record survives an expunge, a re-bootstrapped account reuses it, so the column can read days old while the data is seconds old. Two lines of markup, no new data, no new deploy surface. Routes (b) and (c) were NOT taken and the reasons stand as written above: there is no RTDB-derived per-account created time to show, adding one means two deployed surfaces and reads null for exactly the population an operator is scanning, and `linkedAt` covers a subset. ⚠️ **M7's ruling was read first, as this entry required, and this is NOT the same shape.** M7 — the production banner not naming the project inline — was WON'T FIX as *duplication, not absence*: the truth was already on screen one line up. Here nothing else on screen carries it, and the label asserted something false rather than omitting something true. That distinction is the whole reason the ruling differs, and it is the one to re-apply to the next operator-ergonomics item: **is the missing thing a second copy, or the only copy?** **Verified by planting three violations**: the column relabelled back to the bare word (1 red), the label kept but the explanation dropped (1), and the sort key moved off the renamed header (1 — a rename that silently breaks sorting is the failure this guard exists for); `panel.html` byte-identical after every revert. ⚠️ **What it does NOT cover:** source assertions only. `panel.html` has no DOM harness, so nothing here proves the header RENDERS — it proves the markup says it. The column has not been seen in a browser since the rename, and no session container has a credential to point one at. ✅ **That gap is closed — Part E ran on the dev project 2026-08-06.** The header reads `auth created`, the tooltip explains the divergence, and the column **still sorts by the field it names** — with a second column as the control, because the failure a rename introduces is a header whose `data-k` no longer matches any row field, which looks right and silently stops sorting. ⚠️ **E3, the optional end-to-end reproduction of the divergence (expunge, re-bootstrap, compare), is not separately recorded as run.** What M15 changed is the label and its explanation, and that is what E1+E2 pin; the divergence itself stands observed once, on 2026-08-05, under the old label. REPORTED by the operator; not observed by a session. |
+
+🛑 **M16, M17 and M18 are UNRULED** (filed 2026-08-06 by the security audit that
+closed G11 and G12). They are in this table because it is where minors live, not
+because "deferred by decision" applies — the M9/M13/M14/M15 precedent for saying
+that out loud rather than letting the section heading stand as a verdict. **The
+section's test still applies as the DEFAULT: does it affect the correctness of a
+destructive write?** For all three the answer is no. None of them was promoted,
+and none should be worked without a ruling.
+
+| ID | Where | What | Status |
+|---|---|---|---|
+| **M16** | `firebase.json` `functions.ignore`, `ops/server.js:67` | `DEFAULT_AUDIT_DIR` is `join(HERE, '..', '.ops-audit')` = **`functions/.ops-audit/`**, inside the directory `firebase.json` names as `functions.source`. `functions.ignore` is `["node_modules", ".git", "firebase-debug.log", "firebase-debug.*.log", "ops/**"]` — none of which matches it — and `firebase-tools` packages with `dot: true`, so a dot-directory under the source IS archived. Each pre-image dump is a verbatim capture of everything a purge/merge touched: full `users/{uid}` and `userPrefs/{uid}`, `locations/*` lat/lng, `pushTokens/*`, Telegram ids, share codes, invite tokens, and the Auth record's email when `deleteAuthRecord` is used. | **UNRULED.** ⚠️ **NOT introduced by adding `ignore`, and the first draft of this finding claimed it was.** There was no `ignore` key before; the CLI defaults it replaces never matched `.ops-audit` either, so adding the list strictly NARROWED the archive. ⚠️ **CI cannot reach it:** both workflows deploy from `actions/checkout@v6` and `.ops-audit/` is gitignored, so it never exists in the deploying tree. What remains is a **local** `firebase deploy` from a workstation that has run purges. Fix is one line — add `".ops-audit/**"` to `functions.ignore` and pin it in `tests/firebaseConfig.test.js` beside the existing `ops/**` assertion — or move `DEFAULT_AUDIT_DIR` out of `functions/` entirely. Related to **SEC-5**, which handled the same directory's git and hosting surfaces and not this one. |
+| **M17** | `ops/panel.html:64` | `esc()` replaces `& < > "` and **not `'`**. | **UNRULED.** Not currently exploitable: every attribute sink in the file is double-quoted, and the page runs under a nonce CSP with `default-src 'none'`. It is latent — the first single-quoted attribute someone adds makes it live, in the one file with no test harness, in a process holding a database-admin credential. Adding `'` costs one character. |
+| **M18** | `ops/server.js:906`, `:969` | `BASE_SECURITY_HEADERS` sets `X-Frame-Options` and a CSP but **no `X-Content-Type-Options: nosniff`**; and the request-body reader is `raw += chunk` with **no size cap**. | **UNRULED.** Both are bounded by the loopback-only bind and the `Host`/`Origin` guard, and the body cap is a resource concern on the operator's own machine rather than a privilege boundary. Recorded together because both are one-line hardening on the same file, and because **SEC-3/SEC-7** already went over these headers — so a reader who knows those items would reasonably assume this was covered, and it was not. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is
 insufficient — `/** @type {any} */` is the same escape hatch in JSDoc and slipped
