@@ -106,13 +106,30 @@ in the operator panel now revokes, which bounds that window but cannot close it
 — only the rules can. If the go-ahead is given, start from the measurement in
 the followups doc, not from folklore.
 
-**Branch status (2026-08-05, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
-MERGED TO `dev` AND PUSHED TWICE, at the operator's explicit instruction.**
+**Branch status (2026-08-06, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
+MERGED TO `dev` AND PUSHED THREE TIMES, at the operator's explicit instruction.**
 `origin/dev` moved `59f1a51` → `a1d04e8` (the three items and their docs), then
-`a1d04e8` → the second merge (the live smoke-test steps, their two corrections,
-and the Part A–C result). Both are `--no-ff` merge commits matching `dev`'s own
-history; a fast-forward was available each time and deliberately not taken.
-**Every file in the second merge is under `docs/**` and rides no deploy.**
+→ `dca91e1` (the smoke-test steps, two corrections, the Part A–C result), then
+→ the third merge (D3's route, both deploy outcomes, and the completed smoke
+test). All three are `--no-ff` merge commits matching `dev`'s own history; a
+fast-forward was available each time and deliberately not taken. Working tree
+clean, nothing unpushed, the branch fully contained in `dev` and now redundant —
+kept, not deleted, like its predecessors. `dev` → `main` is the maintainer's; no
+PR was opened and none was asked for.
+
+⚠️ **ALL THREE PUSHES FIRED `deploy-dev.yml` AND ALL THREE SHIPPED NOTHING.**
+The runs at `a1d04e8` and `dca91e1` each completed **success** — CI deploys
+`hosting,database,functions` on every push to `dev` with no gate, so the
+workflow runs whatever the diff contains. The first merge is docs plus
+`functions/ops/**` (excluded from the functions archive) plus
+`functions/test/**`; **the second and third are `docs/**` only**, which rides
+nothing. Verified by filename before each merge, not inferred. Do not
+generalise it to the next one.
+
+⚠️ **All three merges were made from a temporary branch at `origin/dev`, never
+by checking out local `dev`** — which is a shallow-clone artifact stuck at
+`361e65c` (see the landmine below). `git checkout -b tmp origin/dev`, merge,
+`git push origin HEAD:dev`, delete the temp branch. That is the shape to reuse.
 
 The first merge was cut from `origin/dev` at `59f1a51`, which had not moved when
 it was made. Four commits — `2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), and the
@@ -718,31 +735,46 @@ source assertion, and the test says so); the upper-cased codes have never been
 seeded; and the renamed column has not been RENDERED, only asserted in the
 markup, since `panel.html` has no DOM harness.
 
-**M13 IS OFF JEST-ONLY — Parts A, B and C PASSED on the dev project
-(2026-08-05).** `docs/smoke-test-2026-08-05-m13-m15.md` carries the steps and a
-status table. B and C are the pair that settles it: an adopted merge read back
-**with** `--adopt` (57/57) and **without** it (exactly 1 owed, the shared
-group's `displayName`, `want "S in GB", got "L in GB"`), then a plain merge read
-both ways with the values reversed. **Either half alone would have passed
-against a flag that does nothing**, which is why the false failure had to be
-reproduced deliberately rather than merely absent. REPORTED by the operator, not
-observed by a session — no container holds a credential.
+**ALL THREE ARE OFF JEST-ONLY — the live smoke test is COMPLETE.** Every step of
+`docs/smoke-test-2026-08-05-m13-m15.md` passed on the dev project across
+2026-08-05/06. REPORTED by the operator throughout; **nothing was observed by a
+session** — no container has ever held a credential.
 
-**Parts D (M14) and E (M15) are NOT RUN.** M14 and M15 remain jest-only.
+- **M13** (Parts A–C) — an adopted merge read back **with** `--adopt` (57/57) and
+  **without** it (exactly 1 owed: the shared group's `displayName`,
+  `want "S in GB", got "L in GB"`), then a plain merge read both ways with the
+  values **reversed**. **Either half alone would have passed against a flag that
+  does nothing**, which is why the false failure had to be reproduced
+  deliberately on each route rather than merely be absent.
+- **M14** (Part D) — the six codes upper-case in the panel's `code` column, no
+  `code-index-missing` against a control of exactly six `auth-missing` INFOs,
+  no `code-index-dangling`, and **`--clean` taking the index entries with the
+  accounts**. That last is the strand hazard's own signature, checked by its
+  absence against a control that had just established the entries were there.
+- **M15** (Part E) — the header reads `auth created`, explains itself on hover,
+  and still sorts by the field it names, with a second column as the control.
 
-⚠️ **TWO STEPS OF THAT FILE WERE WRONG, and both were caught by an operator
-running them, not by review.** Neither was a defect in the code under test.
-**B3** asked for a per-conflict path count the panel does not render — those
-numbers were M8's canned-harness *totals* lifted into a step as though the page
-printed them per conflict. **D1** called `verify-merge.js` against an un-merged
-fixture to list seeded codes; its 57 claims describe a POST-merge tree, so most
-were owed by definition. Part D now reads the codes off the panel's own `code`
-column and checks the index with `integrity.js`'s `code-index-missing` /
-`code-index-dangling` — instruments that were already in the repo and answer the
-question actually being asked. **The generalisation, and it is the same one both
-times:** reaching for a familiar tool is not the same as checking it answers
-the question. Before asking an operator to read a value off a screen, find the
-line of markup that prints it.
+⚠️ **What is still NOT settled is M14's actual claim: that a client could write
+those codes.** The fixture accounts are synthetic with no Auth record, so no
+token exists or can be minted; Part D proves the codes are well-formed and the
+index symmetric, not that a rules-validated write would be accepted. That stays
+in `ops-merge-fixture-rules.test.js`, which parses the rules rather than
+restating them. E3 — the optional end-to-end reproduction of the M15 divergence
+— is **not separately recorded as run**.
+
+⚠️ **THREE STEPS OF THAT FILE WERE WRONG, and an operator caught all three by
+running them, not by review. None was a defect in the code under test.** **B3**
+asked for a per-conflict path count the panel does not render — M8's
+canned-harness *totals*, lifted into a step as though the page printed them per
+conflict. **D1** pointed `verify-merge.js` at an un-merged fixture to list
+seeded codes; its 57 claims describe a POST-merge tree, so most were owed by
+definition. **D3** said "run the integrity report" and named no route — the
+report has no CLI, it is `GET /api/integrity` behind the panel's integrity tab.
+**The generalisation, and it is the same one all three times:** reaching for a
+familiar tool, or a familiar phrase, is not the same as checking it answers the
+question being asked. Two of the three came from lifting a number or a name out
+of a closure note instead of out of the code — which is this repo's oldest
+lesson, now with three more instances.
 
 **M14's one live precondition was met before the merge.** Whether a seeded
 fixture was live on dev was UNKNOWN from a session container — there is no
