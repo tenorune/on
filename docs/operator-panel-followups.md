@@ -517,11 +517,22 @@ failure is swallowed by `.catch(() => {})`.
   is already unfollowable under the G6 referent rule and refusing here would turn
   an unreadable presence node into a bogus "code not found".
 
-**Verification boundary.** Rules emulator + jest. **No live project** — no session
-container has ever held a service-account credential. The takeover itself is
-OBSERVED on the emulator; the end-to-end chain (co-member reads code → overwrites
-→ third party adds and lands on the attacker) was **never executed**, only traced
-through source. Each guard was watched failing before it existed.
+**Verification boundary.** ✅ **UPDATED 2026-08-06 — RUN LIVE on the dev
+project**, both halves, each with a passing control:
+`docs/smoke-test-2026-08-06-g11-g12.md`. The rule took four REST probes — the
+repoint of a live entry and an unowned delete both REFUSED, against controls
+that claim a free code and re-assert a held one, which must and do succeed. The
+`lookupCode` cross-check ran in the browser: a planted disagreement resolves to
+`Code not found`, while a real code still resolves.
+
+⚠️ **The pre-fix takeover is STILL not observed.** The rule now refuses the
+overwrite, so the end-to-end chain (co-member reads code → overwrites → third
+party adds and lands on the attacker) was watched **dying at its second step**,
+not seen working — it remains traced through source. Seeing the original
+behaviour would mean reverting the rule on dev.
+
+Each guard was watched failing before it existed. No session container has ever
+held a service-account credential; the live run was REPORTED by the operator.
 
 ### G12 — `inviteIndex` was written from key sets the attacker controls — CLOSED
 
@@ -586,10 +597,43 @@ cannot audit, which is G4's reasoning about cascades applied to a refusal.
 generically, so it surfaces with no UI change; a control pins that an ordinary
 token move stays quiet, or the signal becomes noise.
 
-**Verification boundary.** Jest only — **no live project, no browser**. The merge
-conflict has never been RENDERED; `panel.html` has no DOM harness. Every guard
-was watched failing before it existed; the controls pass on both sides by
-construction and are labelled as controls.
+**Verification boundary.** ✅ **UPDATED 2026-08-06 — ALL FOUR SINKS ran live on
+the dev project**, each with a passing control:
+`docs/smoke-test-2026-08-06-g11-g12.md`.
+
+- **`buildMergePlan`'s repoint: PASSED live.** A victim's token planted under the
+  loser was left unrepointed, against two controls that must move and did — the
+  loser's genuine token, and a **legacy bare-uid STRING** entry, which was
+  rewritten to the full `{scope,ownerPath,ownerUid}` shape rather than stranded.
+  That legacy branch is the one that passed all four of its targeted tests and
+  was caught only by `telegram-auth.test.js:583`. `verify-merge.js` held
+  **61/61**, so the refusal cost the merge nothing.
+- ✅ **The merge conflict HAS now been RENDERED** — `invite-index-unowned`
+  appeared in the panel preview. This entry previously said it never had.
+  Refused and REPORTED are separate claims and both were checked; a read-back
+  alone would have passed a working-but-silent guard.
+- ✅ **Sinks 1–3 PASSED live too** — reached by **minting initData with the dev
+  bot token** and calling `graduateTelegram` / `unlinkTelegram` over HTTPS, no
+  phone and no Mini App. Sink 1's planted victim token was not repointed while
+  its own token and a legacy bare-string entry both moved to the graduated uid
+  — independently confirmed as `sha256(phrase)[:32]`, so the repoint reached the
+  *expected* account. Sinks 2 and 3 kept the planted victim entries and released
+  their own; sink 3's control is a token owned by **another member** that is
+  released anyway, which is what pins the guard to `ownerPath` rather than
+  `ownerUid`.
+
+⚠️ **Sink 3 took two runs, and the reason generalises.** A release-type
+control's pass condition is "`null` afterwards", which is indistinguishable from
+"never planted" — a guard that released nothing would look identical. The first
+run therefore established only the guard. **For any guard whose correct
+behaviour is a DELETE, the control must be observed existing BEFORE the fire.**
+Sinks 1 and 2 escaped the same gap only by accident: sink 1's controls are
+self-evidencing (a repointed value can only come from the repoint) and sink 2
+seeds through byte-identical code.
+
+Every guard was watched failing before it existed; the jest controls pass on both
+sides by construction and are labelled as controls. No session container has ever
+held a service-account credential; the live run was REPORTED by the operator.
 
 ### G4 — a pre-image cannot undo a cascade the purge only triggered — CLOSED
 
