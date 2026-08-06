@@ -184,21 +184,30 @@ in the operator panel now revokes, which bounds that window but cannot close it
 — only the rules can. If the go-ahead is given, start from the measurement in
 the followups doc, not from folklore.
 
-**Branch status (2026-08-06, LATEST): `claude/knockknock-handoff-bd6bfo` PUSHED,
-NOT MERGED — three commits, and the merge is the operator's.** `origin/dev` has
-NOT moved; it is still `f84b325`. The branch is at `c9d503d`, cut from
-`origin/dev` at `f84b325`, local and remote identical, working tree clean.
+**Branch status (2026-08-06, LATEST): `claude/knockknock-handoff-bd6bfo` MERGED
+TO `dev` AND PUSHED, at the operator's explicit instruction.** `origin/dev` moved
+`f84b325` → **`5e69125`**, a `--no-ff` merge commit matching `dev`'s own history;
+a fast-forward WAS available and deliberately not taken. Four commits. Working
+tree clean, nothing unpushed, and the feature branch is now fully contained in
+`dev` and redundant — kept, not deleted, like its predecessors.
 
 | | |
 | --- | --- |
 | `27013b9` | **G11** — the `codeIndex` takeover, both halves (the rule, and `lookupCode`'s cross-check) |
 | `551c1a4` | **G12** part 1 — the two `inviteIndex` **repoint** sinks |
 | `c9d503d` | **G12** part 2 — the two `inviteIndex` **release** sinks, the merge conflict, and the shared `inviteIndexOwnership` helper |
+| `37c6489` | docs — M16/M17/M18 ruled WON'T FIX, and the prod deploy handed to the next session |
 
-🛑 **THIS MERGE IS NOT A NO-OP, AND THAT MAKES IT THE FIRST SINCE 2026-08-03.**
-The last five merges shipped nothing — docs, `functions/ops/**`, tests — and this
-file has said "do not generalise that to the next merge" each time. **This is the
-next merge.** Verified by filename, not inferred:
+⚠️ **The merge was made from a temporary branch at `origin/dev`, never by checking
+out local `dev`** — `git checkout -b tmp origin/dev` → merge `--no-ff` →
+`git push origin HEAD:dev` → delete tmp. Local `dev` is a shallow-clone artifact
+(see the landmine below) and was left untouched; it still reads
+`[ahead 129, behind 152]`, which is the artifact and not divergence.
+
+🛑 **THIS MERGE WAS NOT A NO-OP, AND IT IS THE FIRST SINCE 2026-08-03.**
+The five merges before it shipped nothing — docs, `functions/ops/**`, tests — and
+this file said "do not generalise that to the next merge" each time. **This was
+the next merge, and the warning paid off.** Verified by filename, not inferred:
 
 | file | surface |
 | --- | --- |
@@ -208,21 +217,40 @@ next merge.** Verified by filename, not inferred:
 | `functions/ops/merge.js` | none — `ops/**` is excluded via `functions.ignore` |
 | 5 test files — `functions/test/{graduate-invite-index,ops-expunge-build,ops-merge}.test.js`, `tests/db.test.js`, `tests/rules/membership.test.js` | none |
 
-So merging to `dev` deploys **all three surfaces** to the dev project, ungated
-(`deploy-dev.yml`, push to `dev`, no approval gate). Prod stays behind
-`deploy-prod.yml`'s required reviewer until `dev` → `main`, which is the
-maintainer's.
+⚠️ **So this merge DEPLOYED all three surfaces to the dev project**, ungated
+(`deploy-dev.yml`, push to `dev`, no approval gate). **G11's rules change and
+`lookupCode` cross-check, and G12's four guards, are LIVE ON DEV.** Prod stays
+behind `deploy-prod.yml`'s required reviewer until `dev` → `main` — which is now
+the next session's assigned job, not the maintainer's default.
 
-⚠️ **Pushing the BRANCH deployed nothing, and that was checked rather than
-assumed.** Both workflows trigger only on `branches: [dev]` / `[main]`, and the
-Actions API reported `total_count: 0` runs for this branch after the push.
+⚠️ **Pushing the BRANCH beforehand deployed nothing, and that was checked rather
+than assumed.** Both workflows trigger only on `branches: [dev]` / `[main]`, and
+the Actions API reported `total_count: 0` runs for that branch across three
+pushes.
 
-**Green bar OBSERVED at `c9d503d`** on a fresh container after the documented
-`npm ci`: functions **1136/1136** (34 suites) · rules (emulator) **121/121** (12)
-· web jest **2153/2153** (88) · `typecheck` + `typecheck:scripts` clean, **zero**
-new suppressions · `node scripts/prod.js` builds. Every delta is a new test
-against the `f84b325` baseline — **+13 functions, +2 rules, +4 web (19 total)**.
-Each *guard* was watched failing before its implementation existed; the *controls*
+**The deploy-dev run at `5e69125` is
+[31107745279](https://github.com/tenorune/on/actions/runs/31107745279).** Its
+`test` job passed in full — `npx jest`, `npm test`, `npm run test:rules`,
+`typecheck`, `typecheck:scripts` — which is an INDEPENDENT green bar on the
+merged tree, run by CI rather than in this container. The `deploy` job was still
+in `Deploy hosting + database rules` when this session ended; **its conclusion is
+NOT recorded here, so check it before assuming the dev project is up to date.**
+
+⚠️ **THAT STEP'S NAME IS MISLEADING AND WILL COST SOMEBODY AN HOUR.** The step is
+called **"Deploy hosting + database rules"**, and the command inside it is
+`npx firebase deploy --only hosting,database,**functions**`
+(`.github/workflows/deploy-dev.yml:87-96`). **Functions DO deploy.** Reading the
+step name in the Actions UI and concluding otherwise is the exact shape of error
+this file keeps recording — a familiar label is not a check of what it does.
+
+**GREEN BAR OBSERVED ON THE MERGED RESULT at `5e69125` — `dev`'s tip, not the
+branch's**, run after the merge and before the push, on purpose: a green run on
+the branch only proves the branch. functions **1136/1136** (34 suites) · rules
+(emulator) **121/121** (12) · web jest **2153/2153** (88) · `typecheck` +
+`typecheck:scripts` clean, **zero** new suppressions · `node scripts/prod.js`
+builds. Identical at the branch tip beforehand. Every delta is a new test against
+the `f84b325` baseline — **+13 functions, +2 rules, +4 web (19 total)**. Each
+*guard* was watched failing before its implementation existed; the *controls*
 pass on both sides by construction and are labelled as controls in the test
 bodies.
 
@@ -757,6 +785,18 @@ and there is nothing to repair.** A session in this container mistook it for
 real divergence once (2026-08-05) before checking. Work against `origin/dev`,
 which is always correct; leave local `dev` alone. This is the same root cause as
 the existing note that `git fetch --unshallow origin` fails on proxy auth.
+
+✅ **CORRECTION (2026-08-06): `origin/main` IS fetchable, and the `dev`-vs-`main`
+count IS computable.** This file says in the history below that "no cross-branch
+count can be computed" because `--unshallow` fails on proxy auth. That conflates
+two things: the *full* unshallow fails, but a **targeted `git fetch origin main`
+succeeds** and creates `refs/remotes/origin/main`. Measured 2026-08-06 after the
+merge: `origin/main` = `731eed9`, `origin/dev` = `5e69125`, and **`dev` is 152
+commits ahead of `main`** (`git rev-list --count
+refs/remotes/origin/main..refs/remotes/origin/dev`). ⚠️ Use the **full ref paths** —
+`git rev-parse origin/main` alone failed with "Needed a single revision" in this
+container while `refs/remotes/origin/main` resolved fine. Still recompute rather
+than quoting 152 later; the point is that you *can*.
 
 ⚠️ **Do not touch code without the operator's explicit say-so** — propose the
 change and get approval BEFORE any edit. The operator drives; expect
