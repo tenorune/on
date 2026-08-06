@@ -4,7 +4,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
-import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate } from './telegram-shared.js';
+import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate, inviteIndexOwnership } from './telegram-shared.js';
 // The ONE Telegram mapping write-block, shared with the ops panel. It lives
 // outside ops/ because `functions.ignore` excludes `ops/**` from the deploy
 // archive — importing it from there would ship a function that dies at cold
@@ -358,7 +358,17 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
     nulls[`codeIndex/${presence.code}`] = null;
   }
 
+  // Release an index entry only when it resolves back to THIS account. The token
+  // keys come from `users/{uid}/invites`, where the rules constrain nothing about
+  // keys (`database.rules.json:32-38`), so the holder can plant a VICTIM's live
+  // token; this null runs under the Admin SDK, where the rule scoping index
+  // deletion to `ownerUid` does not apply. Unconditional, it kills the victim's
+  // circulating link — and `claimInviteToken` then lets anyone re-claim the
+  // freed token, which turns the deletion into a takeover.
   for (const token of Object.keys(invites || {})) {
+    const entry = await deps.getVal(`inviteIndex/${token}`);
+    const { ownerUid, ownerPath } = inviteIndexOwnership(entry);
+    if (entry != null && ownerUid !== uid && ownerPath !== `users/${uid}/invites/${token}`) continue;
     nulls[`inviteIndex/${token}`] = null;
   }
 
@@ -377,7 +387,8 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
   // have pending invites, and its coarse location cells would otherwise be
   // stranded under a dead gid — including cells belonging to OTHER members,
   // which the per-uid enumerator has no way to reach.
-  ownedGids.forEach((gid, i) => {
+  for (let i = 0; i < ownedGids.length; i += 1) {
+    const gid = ownedGids[i];
     nulls[`groups/${gid}`] = null;
     nulls[`pendingInvitesByGroup/${gid}`] = null;
     nulls[`locationCells/${gid}`] = null;
@@ -393,10 +404,19 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
     // `groups/{gid}/invites/{token}` (`js/db/social.ts:38-54`), and only the
     // first is derivable from the account's own subtree. Same reasoning as the
     // `locationCells/{gid}` null above, which also takes other members' rows.
+    // Release only an entry that RESOLVES INTO this group. Ownership is the
+    // wrong test here and `ownerUid` must not be used: this sweep exists to
+    // take tokens other members issued, so what makes an entry the group's is
+    // its ownerPath. A group owner has blanket write on `groups/$gid` and the
+    // rules validate nothing about keys under `invites/$token`, so an
+    // unconditional null lets the owner plant a victim's token and free it.
     for (const token of Object.keys(ownedInvites[i] || {})) {
+      const entry = await deps.getVal(`inviteIndex/${token}`);
+      const { ownerPath } = inviteIndexOwnership(entry);
+      if (entry != null && ownerPath !== `groups/${gid}/invites/${token}`) continue;
       nulls[`inviteIndex/${token}`] = null;
     }
-  });
+  }
 
   nulls[`users/${uid}`] = null;
   nulls[`userPrefs/${uid}`] = null;
@@ -596,7 +616,7 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
     // string IS the owner, so read ownership from it rather than seeing an
     // absent `ownerUid` and stranding a token the account really holds.
     const existingIndex = await deps.getVal(`inviteIndex/${token}`);
-    const indexOwner = typeof existingIndex === 'string' ? existingIndex : existingIndex?.ownerUid;
+    const { ownerUid: indexOwner } = inviteIndexOwnership(existingIndex);
     if (existingIndex != null && indexOwner !== oldUid) continue;
     writes[`inviteIndex/${token}`] = {
       scope: 'personal',

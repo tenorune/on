@@ -21,7 +21,7 @@
 // graduation already share. Merge is its third consumer. A new residue family
 // belongs THERE, never in this file — the parity test in
 // test/ops-merge.test.js is what enforces that.
-import { rootUpdate } from '../telegram-shared.js';
+import { rootUpdate, inviteIndexOwnership } from '../telegram-shared.js';
 import { crossRefRenderers, OWN_MAILBOXES } from '../telegram-auth.js';
 import { canvasPeers } from './project.js';
 // The ONE Telegram mapping write-block (and the ONE teardown), shared with
@@ -293,12 +293,25 @@ export async function buildMergePlan(deps, opts) {
     // where the rule forbidding an overwrite does not apply. Repoint only an
     // entry that is absent (never globally claimed — the ordinary merge, since
     // the record itself moves either way) or already the loser's.
-    // A legacy entry is a bare uid STRING (the shape old graduation wrote); the
-    // string IS the owner, so ownership is read from it rather than from an
-    // `ownerUid` it does not carry. Same normalization as telegram-auth.js.
+    // Ownership comes from the one helper that knows both entry shapes,
+    // including the legacy bare-uid STRING (see telegram-shared.js).
+    //
+    // A refused repoint is REPORTED, not skipped silently: the operator is the
+    // only thing standing between this plan and a destructive write, and a plan
+    // that quietly does less than it says is one they cannot audit. Same
+    // reasoning G4 applies to cascades — what the operator approves has to be
+    // what they were shown.
     const existingIndex = await deps.getVal(`inviteIndex/${token}`);
-    const indexOwner = typeof existingIndex === 'string' ? existingIndex : existingIndex?.ownerUid;
-    if (existingIndex != null && indexOwner !== L) continue;
+    const { ownerUid: indexOwner } = inviteIndexOwnership(existingIndex);
+    if (existingIndex != null && indexOwner !== L) {
+      conflict(
+        'invite-index-unowned',
+        `inviteIndex/${token}`,
+        `the loser holds a record for token ${token}, but its index entry resolves to ${indexOwner ?? 'an unreadable owner'} — the loser does not own it`,
+        'index left where it points; the loser record still moves to the survivor',
+      );
+      continue;
+    }
     writes[`inviteIndex/${token}`] = { scope: 'personal', ownerPath: `users/${S}/invites/${token}`, ownerUid: S };
   }
   const loserLastSeen = loser.presence?.lastSeen;

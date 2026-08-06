@@ -284,6 +284,31 @@ describe('identity and indexes', () => {
     expect(await deps.getVal('inviteIndex/VICTTOK')).toEqual(victimEntry);
   });
 
+  // A refusal the operator cannot see is not a refusal they approved — the same
+  // reasoning G4 applies to cascades. Skipping the repoint silently leaves the
+  // preview identical to an ordinary merge, so the one signal that this account
+  // is claiming a token it does not own never reaches the person deciding.
+  test('the refused repoint is reported as a conflict, not skipped silently', async () => {
+    const deps = world();
+    deps.store['users/L'].invites.VICTTOK = { scope: 'personal' };
+    deps.store['inviteIndex/VICTTOK'] = { scope: 'personal', ownerPath: 'users/victim/invites/VICTTOK', ownerUid: 'victim' };
+    const { conflicts } = await merge(deps);
+
+    const raised = conflicts.find((c) => c.kind === 'invite-index-unowned');
+    expect(raised).toBeDefined();
+    expect(raised.path).toBe('inviteIndex/VICTTOK');
+    expect(raised.detail).toContain('victim');
+  });
+
+  // The control: an ordinary merge must stay quiet, or the signal is noise.
+  test('an ordinary token move raises no such conflict', async () => {
+    const deps = world();
+    deps.store['inviteIndex/tokL'] = { scope: 'personal', ownerPath: 'users/L/invites/tokL', ownerUid: 'L' };
+    const { conflicts } = await merge(deps);
+
+    expect(conflicts.some((c) => c.kind === 'invite-index-unowned')).toBe(false);
+  });
+
   // The control for the guard above. `world()` seeds the loser's invite WITHOUT
   // an index entry, so an absent entry must still be written — that is the
   // ordinary merge, and skipping it would strand the moved token. Only a
