@@ -597,8 +597,8 @@ cannot audit, which is G4's reasoning about cascades applied to a refusal.
 generically, so it surfaces with no UI change; a control pins that an ordinary
 token move stays quiet, or the signal becomes noise.
 
-**Verification boundary.** ⚠️ **UPDATED 2026-08-06 — ONE SINK OF FOUR ran live
-on the dev project. Do not read this as "G12 verified live".**
+**Verification boundary.** ✅ **UPDATED 2026-08-06 — ALL FOUR SINKS ran live on
+the dev project**, each with a passing control:
 `docs/smoke-test-2026-08-06-g11-g12.md`.
 
 - **`buildMergePlan`'s repoint: PASSED live.** A victim's token planted under the
@@ -612,11 +612,24 @@ on the dev project. Do not read this as "G12 verified live".**
   appeared in the panel preview. This entry previously said it never had.
   Refused and REPORTED are separate claims and both were checked; a read-back
   alone would have passed a working-but-silent guard.
-- ❌ **Sinks 1–3 remain jest-only** — `graduateAccountData`'s repoint and both
-  `buildExpungeWrites` releases. They sit behind `requireTelegramUser`, which
-  verifies an HMAC over the bot token, so no Firebase-auth route reaches them;
-  they need a real Telegram account against the dev bot, or initData minted with
-  the bot token.
+- ✅ **Sinks 1–3 PASSED live too** — reached by **minting initData with the dev
+  bot token** and calling `graduateTelegram` / `unlinkTelegram` over HTTPS, no
+  phone and no Mini App. Sink 1's planted victim token was not repointed while
+  its own token and a legacy bare-string entry both moved to the graduated uid
+  — independently confirmed as `sha256(phrase)[:32]`, so the repoint reached the
+  *expected* account. Sinks 2 and 3 kept the planted victim entries and released
+  their own; sink 3's control is a token owned by **another member** that is
+  released anyway, which is what pins the guard to `ownerPath` rather than
+  `ownerUid`.
+
+⚠️ **Sink 3 took two runs, and the reason generalises.** A release-type
+control's pass condition is "`null` afterwards", which is indistinguishable from
+"never planted" — a guard that released nothing would look identical. The first
+run therefore established only the guard. **For any guard whose correct
+behaviour is a DELETE, the control must be observed existing BEFORE the fire.**
+Sinks 1 and 2 escaped the same gap only by accident: sink 1's controls are
+self-evidencing (a repointed value can only come from the repoint) and sink 2
+seeds through byte-identical code.
 
 Every guard was watched failing before it existed; the jest controls pass on both
 sides by construction and are labelled as controls. No session container has ever
