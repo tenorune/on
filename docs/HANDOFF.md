@@ -11,30 +11,69 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-🛑 **START HERE: ONE THING IS OWED, and it is the operator's, not a session's —
-an UNMERGED branch carrying three deploy surfaces.** This file said "nothing is
-owed" from 2026-08-05 until 2026-08-06, and that sentence is now false. A
-security audit on 2026-08-06 closed **G11** and **G12** and filed **M16, M17,
-M18** unruled. See "Branch status (2026-08-06, LATEST)" below before anything
-else: `claude/knockknock-handoff-bd6bfo` is at `c9d503d`, three commits ahead of
-`origin/dev`, pushed and green, and **nothing in it is live anywhere** — not even
-on the dev project.
+🛑 **START HERE: A PROD DEPLOY IS OWED, and it is the next session's job — the
+operator has said so.** A security audit on 2026-08-06 closed **G11** and **G12**
+and filed **M16, M17, M18**, which the operator ruled **WON'T FIX** the same day.
+All of it is **merged to `dev` and live on the dev project**. What is left is
+`dev` → `main` and the gated prod deploy. See "The prod deploy owed" directly
+below — read it before anything else, because this is the first prod deploy in a
+while that carries a **rules** change, and rules bind every client the moment they
+land, including ones nobody can update.
 
 **What is open:**
 
 | | |
 |---|---|
-| **The merge decision** | `claude/knockknock-handoff-bd6bfo` → `dev`. **THE OPERATOR'S.** It ships **rules + `js/` + `functions/`** — unlike every merge since 2026-08-03, this one is not a no-op. |
-| **M16, M17, M18** | **UNRULED**, filed 2026-08-06. Filed is not queued. 🛑 **Do not start one without a ruling** — M13/M14/M15 are the precedent: they sat unruled until the operator ruled them DO in session. |
+| **`dev` → `main` + the prod deploy** | **OWED, and assigned: the next session.** Ships **rules + `js/` + `functions/`**. `docs/DEPLOY-PROD.md` is the runbook. |
 | **G1, M1, M2, M6, M7** | **WON'T FIX**, ruled 2026-08-03. Raise it before working one, not after. |
+| **M16, M17, M18** | **WON'T FIX**, filed and ruled 2026-08-06. Same standing: raise it before working one. |
 | **G3 / #302** | **Parked**, and needs the operator's explicit in-session go-ahead — see the standing rule directly below. |
 
-So the honest reading has changed in exactly one way, and not in the way that
-matters most: **there is still nothing on the ledger a session may start on its
-own.** Three unruled items is not three available items — it is the state
-M13/M14/M15 were in, and the answer then was to put them to the operator. If the
-choice looks empty, ask. **An emptier ledger is not a larger licence, and a
-fuller one is not a queue.**
+**Nothing on the ledger is unruled again**, which is its normal state, and
+**there is still nothing on it a session may start on its own.** The prod deploy
+is the exception, and it is an exception because the operator assigned it in
+words, not because it was the only thing left. If the choice looks empty, ask.
+**An emptier ledger is not a larger licence.**
+
+### The prod deploy owed — read this before starting it
+
+**Assigned by the operator (2026-08-06): the next session merges `dev` → `main`
+and deploys to prod.** `docs/DEPLOY-PROD.md` is the runbook. ⚠️ Its title says
+"first prod deploy" and that is **dated** — prod exists, `main` was at `731eed9`
+for v2.0.0, so Part 0's one-time setup is presumably done. Confirm rather than
+re-run it.
+
+**How it ships.** `deploy-prod.yml` fires on push to `main` and runs
+`firebase deploy --only hosting,database,functions`, gated by
+`environment: production` (required reviewer). So all three surfaces go at once
+and **`database` means the rules**.
+
+**What is riding, beyond this session's work.** `dev` already carried three
+production behaviour changes on the `performLink` → `expungeDerivedAccount` path
+(`pushTokens` cleanup `0f31553`, owned-group index releases `1f639ee`, the
+`inviteIndex` shape fix `2fcc51f`), plus **G6's rules `.validate`**
+(`13cb18c`+`e2dde4e`) and the G9/G10/M11 client changes — all live on dev,
+none on prod. This session's four commits add to that pile. **Nobody has ever
+deployed this much rules + client + functions change to prod at once**, so read
+`docs/DEPLOY-PROD.md` Part 3 (verification) and Part 4 (rollback) before Part 2.
+
+🛑 **THE ONE THING TO CHECK ON PROD DATA FIRST, and it is not in the runbook.**
+G11's second half makes `lookupCode` refuse an index entry whose account does not
+advertise that code. That is the point — it neutralises entries hijacked before
+the rule shipped — but **it also stops a legitimately orphaned code resolving.**
+`rotateCode` releases the old code **last** and treats a failure as "a harmless
+orphan" (`js/db/social.ts:449`, `.catch(() => {})`), so prod can hold
+`codeIndex/{oldCode}` → uid whose `presence/code` is now something else. Today
+that stale code still works. After this deploy it returns "code not found".
+
+Arguably that is correct — a rotated-away code *should* stop working — but it is a
+**user-visible change on real data**, so census it rather than discover it:
+`integrity.js:68` already reports exactly this shape as **`code-index-stale`**
+("index entry survives a code rotation"), via the panel's integrity tab
+(`GET /api/integrity` — there is no CLI for it). Run it against prod first. If
+the count is zero, this paragraph costs nothing. If it is not, decide whether to
+sweep those entries before or after the deploy — do not let the first report of it
+be a user saying their friend's code stopped working.
 
 **What the 2026-08-06 audit found, and what it got wrong**, because the second
 half is the more useful record:
