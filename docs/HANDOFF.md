@@ -57,24 +57,6 @@ none on prod. This session's four commits add to that pile. **Nobody has ever
 deployed this much rules + client + functions change to prod at once**, so read
 `docs/DEPLOY-PROD.md` Part 3 (verification) and Part 4 (rollback) before Part 2.
 
-🛑 **THE ONE THING TO CHECK ON PROD DATA FIRST, and it is not in the runbook.**
-G11's second half makes `lookupCode` refuse an index entry whose account does not
-advertise that code. That is the point — it neutralises entries hijacked before
-the rule shipped — but **it also stops a legitimately orphaned code resolving.**
-`rotateCode` releases the old code **last** and treats a failure as "a harmless
-orphan" (`js/db/social.ts:449`, `.catch(() => {})`), so prod can hold
-`codeIndex/{oldCode}` → uid whose `presence/code` is now something else. Today
-that stale code still works. After this deploy it returns "code not found".
-
-Arguably that is correct — a rotated-away code *should* stop working — but it is a
-**user-visible change on real data**, so census it rather than discover it:
-`integrity.js:68` already reports exactly this shape as **`code-index-stale`**
-("index entry survives a code rotation"), via the panel's integrity tab
-(`GET /api/integrity` — there is no CLI for it). Run it against prod first. If
-the count is zero, this paragraph costs nothing. If it is not, decide whether to
-sweep those entries before or after the deploy — do not let the first report of it
-be a user saying their friend's code stopped working.
-
 **What the 2026-08-06 audit found, and what it got wrong**, because the second
 half is the more useful record:
 
@@ -98,6 +80,17 @@ half is the more useful record:
   how the thing would actually happen.** That is now the fourth consecutive
   review wave in this repo where a written finding was a hypothesis; the
   correction is recorded in the roadmap's appendix and in each entry.
+- ⚠️ **And the handoff itself carried one, briefly.** This section originally
+  opened the prod-deploy block with a mandatory pre-deploy census for
+  `code-index-stale` — stale `codeIndex` entries left by an interrupted
+  `rotateCode`, which G11's new refusal would stop resolving. The operator cut it:
+  **nobody rotates codes**, so the population is empty and the step was a
+  five-minute errand for a condition that does not occur. `rotateCode` IS wired
+  (`index.html:302` → `js/mycode.ts:87`) — *reachable* is not *used*, and the step
+  was written from the code path without measuring it. Same failure as the three
+  wrong smoke-test steps, now committed by the session writing the warning rather
+  than by one following it. **If a stale code ever does surface, the explanation
+  is already in G11's ledger entry; it does not need a step in this file.**
 - ⚠️ **`/security-review` could not run against the branch as-is** —
   it resolves `origin/HEAD...`, which needs a merge base the shallow clone cannot
   produce. It was run by cutting a throwaway branch at `origin/main` and
