@@ -106,21 +106,30 @@ in the operator panel now revokes, which bounds that window but cannot close it
 — only the rules can. If the go-ahead is given, start from the measurement in
 the followups doc, not from folklore.
 
-**Branch status (2026-08-05, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
-MERGED TO `dev` AND PUSHED TWICE, at the operator's explicit instruction.**
+**Branch status (2026-08-06, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
+MERGED TO `dev` AND PUSHED THREE TIMES, at the operator's explicit instruction.**
 `origin/dev` moved `59f1a51` → `a1d04e8` (the three items and their docs), then
-`a1d04e8` → the second merge (the live smoke-test steps, their two corrections,
-and the Part A–C result). Both are `--no-ff` merge commits matching `dev`'s own
-history; a fast-forward was available each time and deliberately not taken.
+→ `dca91e1` (the smoke-test steps, two corrections, the Part A–C result), then
+→ the third merge (D3's route, both deploy outcomes, and the completed smoke
+test). All three are `--no-ff` merge commits matching `dev`'s own history; a
+fast-forward was available each time and deliberately not taken. Working tree
+clean, nothing unpushed, the branch fully contained in `dev` and now redundant —
+kept, not deleted, like its predecessors. `dev` → `main` is the maintainer's; no
+PR was opened and none was asked for.
 
-⚠️ **BOTH PUSHES FIRED `deploy-dev.yml` AND BOTH SHIPPED NOTHING.** The runs at
-`a1d04e8` and `dca91e1` each completed **success** — CI deploys
+⚠️ **ALL THREE PUSHES FIRED `deploy-dev.yml` AND ALL THREE SHIPPED NOTHING.**
+The runs at `a1d04e8` and `dca91e1` each completed **success** — CI deploys
 `hosting,database,functions` on every push to `dev` with no gate, so the
 workflow runs whatever the diff contains. The first merge is docs plus
 `functions/ops/**` (excluded from the functions archive) plus
-`functions/test/**`; **every file in the second is under `docs/**`**, which
-rides nothing. Verified by filename before each merge, not inferred. Do not
+`functions/test/**`; **the second and third are `docs/**` only**, which rides
+nothing. Verified by filename before each merge, not inferred. Do not
 generalise it to the next one.
+
+⚠️ **All three merges were made from a temporary branch at `origin/dev`, never
+by checking out local `dev`** — which is a shallow-clone artifact stuck at
+`361e65c` (see the landmine below). `git checkout -b tmp origin/dev`, merge,
+`git push origin HEAD:dev`, delete the temp branch. That is the shape to reuse.
 
 The first merge was cut from `origin/dev` at `59f1a51`, which had not moved when
 it was made. Four commits — `2d35ef4` (**M13**), `20adac1` (**M14**), `b4574a4` (**M15**), and the
