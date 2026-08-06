@@ -55,7 +55,7 @@
     "codeIndex": {
       "$code": {
         ".read": "auth != null",
-        ".write": "auth != null && ((newData.exists() && newData.val() === auth.uid) || (!newData.exists() && data.val() === auth.uid))"
+        ".write": "auth != null && ((newData.exists() && newData.val() === auth.uid && (!data.exists() || data.val() === auth.uid)) || (!newData.exists() && data.val() === auth.uid))"
       }
     },
     "inviteIndex": {
