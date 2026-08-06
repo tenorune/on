@@ -186,8 +186,11 @@ the followups doc, not from folklore.
 
 **Branch status (2026-08-06, LATEST): `claude/knockknock-handoff-bd6bfo` MERGED
 TO `dev` AND PUSHED, at the operator's explicit instruction.** `origin/dev` moved
-`f84b325` → **`5e69125`**, a `--no-ff` merge commit matching `dev`'s own history;
-a fast-forward WAS available and deliberately not taken. Four commits. Working
+`f84b325` → **`5e69125`** — the four commits below — and then **further, by
+docs-only merges carrying this file**. Do not read `5e69125` as `dev`'s tip; it is
+where the *code* landed. Run `git log --oneline -3 origin/dev` for the current
+one. Each is a `--no-ff` merge commit matching `dev`'s own history; a
+fast-forward was available every time and deliberately not taken. Working
 tree clean, nothing unpushed, and the feature branch is now fully contained in
 `dev` and redundant — kept, not deleted, like its predecessors.
 
