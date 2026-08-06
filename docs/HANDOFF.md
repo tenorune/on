@@ -11,26 +11,104 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**START HERE: nothing is owed, and nothing on the ledger is unruled.** The three
-items that were unruled — **M13, M14 and M15** — were **put to the operator,
-ruled DO, and built on 2026-08-05**. The live smoke test of everything closed
-since the last one is **COMPLETE**: `docs/smoke-test-2026-08-04.md`, every step
-run against the dev project across 2026-08-04/05. Parts A, B, C and E pass;
-Part D passes except D5a, which is partial *by nature* rather than for want of
-running (see below).
+🛑 **START HERE: A PROD DEPLOY IS OWED, and it is the next session's job — the
+operator has said so.** A security audit on 2026-08-06 closed **G11** and **G12**
+and filed **M16, M17, M18**, which the operator ruled **WON'T FIX** the same day.
+All of it is **merged to `dev` and live on the dev project**. What is left is
+`dev` → `main` and the gated prod deploy. See "The prod deploy owed" directly
+below — read it before anything else, because this is the first prod deploy in a
+while that carries a **rules** change, and rules bind every client the moment they
+land, including ones nobody can update.
 
 **What is open:**
 
 | | |
 |---|---|
+| **`dev` → `main` + the prod deploy** | **OWED, and assigned: the next session.** Ships **rules + `js/` + `functions/`**. `docs/DEPLOY-PROD.md` is the runbook. |
 | **G1, M1, M2, M6, M7** | **WON'T FIX**, ruled 2026-08-03. Raise it before working one, not after. |
+| **M16, M17, M18** | **WON'T FIX**, filed and ruled 2026-08-06. Same standing: raise it before working one. |
 | **G3 / #302** | **Parked**, and needs the operator's explicit in-session go-ahead — see the standing rule directly below. |
 
-So the honest reading is unchanged from the last handoff, and closing three
-items did not change it: **there is nothing on the ledger a session may start
-on its own.** If that leaves the choice empty, the answer is to ask, not to
-pick the biggest item. An emptier ledger is not a larger licence — it is the
-normal state of this repo.
+**Nothing on the ledger is unruled again**, which is its normal state, and
+**there is still nothing on it a session may start on its own.** The prod deploy
+is the exception, and it is an exception because the operator assigned it in
+words, not because it was the only thing left. If the choice looks empty, ask.
+**An emptier ledger is not a larger licence.**
+
+### The prod deploy owed — read this before starting it
+
+**Assigned by the operator (2026-08-06): the next session merges `dev` → `main`
+and deploys to prod.** `docs/DEPLOY-PROD.md` is the runbook. ⚠️ Its title says
+"first prod deploy" and that is **dated** — prod exists, `main` was at `731eed9`
+for v2.0.0, so Part 0's one-time setup is presumably done. Confirm rather than
+re-run it.
+
+**How it ships.** `deploy-prod.yml` fires on push to `main` and runs
+`firebase deploy --only hosting,database,functions`, gated by
+`environment: production` (required reviewer). So all three surfaces go at once
+and **`database` means the rules**.
+
+**What is riding, beyond this session's work.** `dev` already carried three
+production behaviour changes on the `performLink` → `expungeDerivedAccount` path
+(`pushTokens` cleanup `0f31553`, owned-group index releases `1f639ee`, the
+`inviteIndex` shape fix `2fcc51f`), plus **G6's rules `.validate`**
+(`13cb18c`+`e2dde4e`) and the G9/G10/M11 client changes — all live on dev,
+none on prod. This session's four commits add to that pile. **Nobody has ever
+deployed this much rules + client + functions change to prod at once**, so read
+`docs/DEPLOY-PROD.md` Part 3 (verification) and Part 4 (rollback) before Part 2.
+
+🛑 **THE ONE THING TO CHECK ON PROD DATA FIRST, and it is not in the runbook.**
+G11's second half makes `lookupCode` refuse an index entry whose account does not
+advertise that code. That is the point — it neutralises entries hijacked before
+the rule shipped — but **it also stops a legitimately orphaned code resolving.**
+`rotateCode` releases the old code **last** and treats a failure as "a harmless
+orphan" (`js/db/social.ts:449`, `.catch(() => {})`), so prod can hold
+`codeIndex/{oldCode}` → uid whose `presence/code` is now something else. Today
+that stale code still works. After this deploy it returns "code not found".
+
+Arguably that is correct — a rotated-away code *should* stop working — but it is a
+**user-visible change on real data**, so census it rather than discover it:
+`integrity.js:68` already reports exactly this shape as **`code-index-stale`**
+("index entry survives a code rotation"), via the panel's integrity tab
+(`GET /api/integrity` — there is no CLI for it). Run it against prod first. If
+the count is zero, this paragraph costs nothing. If it is not, decide whether to
+sweep those entries before or after the deploy — do not let the first report of it
+be a user saying their friend's code stopped working.
+
+**What the 2026-08-06 audit found, and what it got wrong**, because the second
+half is the more useful record:
+
+- **G11** — `codeIndex/$code`'s write rule checked only the incoming value, so
+  any signed-in account could repoint another user's live entry at itself. Every
+  later "add person" for that code then landed on the attacker, and the victim
+  could not recover. **Pre-existing, identical on `main`** — the gap SEC-1 left
+  when it fixed the three Admin-SDK sinks and not the client rule. Reachable by
+  any **co-member** of a shared group, since `groups/$gid` yields uids and
+  `users/$uid/presence` is world-readable to authed users.
+- **G12** — `inviteIndex/{token}` was repointed and released from key sets an
+  attacker controls, at **four** sinks, three of them behind public callables.
+  Also pre-existing; what changed recently was the *payoff*, when fixing the
+  entry's shape turned corruption into working takeover.
+- ⚠️ **Half the audit's own findings did not survive verification.** Two of four
+  from the tooling run were refuted (attribution wrong in one, causation wrong in
+  the other), and two of five from the hand pass were wrong on the facts — one
+  claimed an invite **redemption budget** that does not exist (`redemptionCap` is
+  hardcoded `null` at both creation sites), and one treated a **public** repo's
+  source disclosure as if it were a leak. **The operator caught both by asking
+  how the thing would actually happen.** That is now the fourth consecutive
+  review wave in this repo where a written finding was a hypothesis; the
+  correction is recorded in the roadmap's appendix and in each entry.
+- ⚠️ **`/security-review` could not run against the branch as-is** —
+  it resolves `origin/HEAD...`, which needs a merge base the shallow clone cannot
+  produce. It was run by cutting a throwaway branch at `origin/main` and
+  committing `dev`'s tree onto it, so the range resolved to the real 80-file
+  delta. That scaffolding was deleted; the technique is the reusable part.
+
+**Verification boundary for both closures: jest + the rules emulator. NOTHING
+RAN LIVE.** G11's takeover is OBSERVED on the emulator; its exploit chain was
+traced through source, never executed. G12 is jest-only, and the new merge
+conflict has never been RENDERED — `panel.html` has no DOM harness. No session
+container has ever held a service-account credential.
 
 **What the three closures shipped** (full entries, including what each
 deliberately does not claim, in `docs/operator-panel-followups.md`):
@@ -106,7 +184,58 @@ in the operator panel now revokes, which bounds that window but cannot close it
 — only the rules can. If the go-ahead is given, start from the measurement in
 the followups doc, not from folklore.
 
-**Branch status (2026-08-06, LATEST): `claude/knockknock-unruled-decisions-ak3gaa`
+**Branch status (2026-08-06, LATEST): `claude/knockknock-handoff-bd6bfo` PUSHED,
+NOT MERGED — three commits, and the merge is the operator's.** `origin/dev` has
+NOT moved; it is still `f84b325`. The branch is at `c9d503d`, cut from
+`origin/dev` at `f84b325`, local and remote identical, working tree clean.
+
+| | |
+| --- | --- |
+| `27013b9` | **G11** — the `codeIndex` takeover, both halves (the rule, and `lookupCode`'s cross-check) |
+| `551c1a4` | **G12** part 1 — the two `inviteIndex` **repoint** sinks |
+| `c9d503d` | **G12** part 2 — the two `inviteIndex` **release** sinks, the merge conflict, and the shared `inviteIndexOwnership` helper |
+
+🛑 **THIS MERGE IS NOT A NO-OP, AND THAT MAKES IT THE FIRST SINCE 2026-08-03.**
+The last five merges shipped nothing — docs, `functions/ops/**`, tests — and this
+file has said "do not generalise that to the next merge" each time. **This is the
+next merge.** Verified by filename, not inferred:
+
+| file | surface |
+| --- | --- |
+| `database.rules.json` | **RULES** — binds every client the moment it deploys, including ones nobody can update |
+| `js/db/social.ts` | **HOSTING** — `js/` is exactly what Hosting serves |
+| `functions/telegram-auth.js`, `functions/telegram-shared.js` | **FUNCTIONS** — top-level, in the deploy archive |
+| `functions/ops/merge.js` | none — `ops/**` is excluded via `functions.ignore` |
+| 5 test files — `functions/test/{graduate-invite-index,ops-expunge-build,ops-merge}.test.js`, `tests/db.test.js`, `tests/rules/membership.test.js` | none |
+
+So merging to `dev` deploys **all three surfaces** to the dev project, ungated
+(`deploy-dev.yml`, push to `dev`, no approval gate). Prod stays behind
+`deploy-prod.yml`'s required reviewer until `dev` → `main`, which is the
+maintainer's.
+
+⚠️ **Pushing the BRANCH deployed nothing, and that was checked rather than
+assumed.** Both workflows trigger only on `branches: [dev]` / `[main]`, and the
+Actions API reported `total_count: 0` runs for this branch after the push.
+
+**Green bar OBSERVED at `c9d503d`** on a fresh container after the documented
+`npm ci`: functions **1136/1136** (34 suites) · rules (emulator) **121/121** (12)
+· web jest **2153/2153** (88) · `typecheck` + `typecheck:scripts` clean, **zero**
+new suppressions · `node scripts/prod.js` builds. Every delta is a new test
+against the `f84b325` baseline — **+13 functions, +2 rules, +4 web (19 total)**.
+Each *guard* was watched failing before its implementation existed; the *controls*
+pass on both sides by construction and are labelled as controls in the test
+bodies.
+
+⚠️ **One defect in this work was caught by the FULL suite and by nothing else.**
+The first `inviteIndex` guard read `.ownerUid` off entries that can be a legacy
+bare uid **string**, which would have permanently stranded every legacy token its
+real owner tried to move or release. All four targeted tests passed against it;
+`telegram-auth.test.js:583` — a pre-existing test in an untouched file — failed.
+**Running only the suites you changed would have shipped it.** The documented
+gates already require the full runs; the targeted run was just faster to reach
+for.
+
+**Prior branch status (2026-08-06): `claude/knockknock-unruled-decisions-ak3gaa`
 MERGED TO `dev` AND PUSHED THREE TIMES, at the operator's explicit instruction.**
 `origin/dev` moved `59f1a51` → `a1d04e8` (the three items and their docs), then
 → `dca91e1` (the smoke-test steps, two corrections, the Part A–C result), then
@@ -252,6 +381,14 @@ merge to `dev` shipped `database.rules.json` via
 `.github/workflows/deploy-dev.yml`. It is the fourth prod-undeployed behaviour
 change (see the branch-status note below). Deployed is not verified, and
 undeployed-to-prod is not undeployed — keep the two apart.
+
+⚠️ **DATED RECORD (2026-08-03), and its headline claim has since gone false —
+left as written, like the ledger's own dated queue section.** "NO BUILD WORK IS
+OWED ON THIS REPO AT ALL" was true when written. As of **2026-08-06** three
+unruled items (M16-M18) are filed and a branch is pushed and unmerged; read
+"What's next" at the top of this file for the current inventory. Everything else
+below still stands — G3 is still parked, and still requires the operator's
+explicit in-session go-ahead.
 
 **G3 IS PARKED AS [#302](https://github.com/tenorune/on/issues/302)
 (2026-08-03), so NO BUILD WORK IS OWED ON THIS REPO AT ALL.** It is spec-first

@@ -185,6 +185,28 @@ describe('buildExpungeWrites: indexes pointing into a wholesale-deleted group', 
     expect(writes['inviteIndex/otok']).toBeUndefined();
   });
 
+  // The deletion half of the Variant A class. A group owner has blanket write
+  // on `groups/$gid` and the rules constrain nothing about keys under
+  // `invites/$token` beyond `redemptionsUsed`, so the owner can plant a
+  // VICTIM's live token there. This null runs under the Admin SDK, where the
+  // rule scoping index deletion to `ownerUid` does not apply — so an
+  // unconditional null kills the victim's still-circulating link, and
+  // `claimInviteToken` then lets anyone re-claim the freed token.
+  //
+  // The guard is `ownerPath`, NOT `ownerUid`: gtok2 above proves this sweep is
+  // meant to take tokens OTHER members issued, so ownership cannot be the test.
+  // What makes an entry this group's is that it resolves INTO this group.
+  test('does NOT release an index entry that resolves somewhere else (planted token)', async () => {
+    const victimEntry = { scope: 'personal', ownerPath: 'users/victim/invites/VICTTOK', ownerUid: 'victim' };
+    const deps = seededOwner();
+    deps.store['groups/gOwn'].invites.VICTTOK = { redemptionsUsed: 0 }; // planted by the owner
+    deps.store['inviteIndex/VICTTOK'] = victimEntry;                    // resolves to the victim
+
+    const writes = await buildExpungeWrites(deps, 'dead');
+
+    expect(writes['inviteIndex/VICTTOK']).toBeUndefined();
+  });
+
   test('the enlarged null-set still applies as one atomic update', async () => {
     const deps = seededOwner();
 
@@ -195,5 +217,47 @@ describe('buildExpungeWrites: indexes pointing into a wholesale-deleted group', 
     expect(await deps.getVal('inviteIndex/gtok2')).toBeNull();
     expect(await deps.getVal('groupIdIndex/gOther')).toBe(true);
     expect(await deps.getVal('inviteIndex/otok')).toEqual({ scope: 'group', ownerPath: 'groups/gOther/invites/otok', ownerUid: 'dead' });
+  });
+});
+
+// The per-account sweep has the same shape as the owned-group one: the token
+// keys come from `users/{uid}/invites`, which the rules let the account fill
+// with ANY key (database.rules.json:32-38), so a holder can plant a victim's
+// live token and have the expunge free it under the Admin SDK. Release an entry
+// only when it resolves back to this account.
+describe('buildExpungeWrites: the per-account invite sweep checks what it frees', () => {
+  test('releases an entry that resolves back to this account', async () => {
+    const writes = await buildExpungeWrites(seeded(), 'dead');
+
+    expect(writes['inviteIndex/tok1']).toBeNull();
+  });
+
+  test('releases a LEGACY bare-uid entry this account owns', async () => {
+    const deps = seeded();
+    deps.store['inviteIndex/tok1'] = 'dead'; // the shape old graduation wrote
+
+    const writes = await buildExpungeWrites(deps, 'dead');
+
+    expect(writes['inviteIndex/tok1']).toBeNull();
+  });
+
+  test('does NOT release an entry that resolves to another account (planted token)', async () => {
+    const deps = seeded();
+    deps.store['users/dead'].invites.VICTTOK = { redemptionsUsed: 0 };
+    deps.store['inviteIndex/VICTTOK'] = { scope: 'personal', ownerPath: 'users/victim/invites/VICTTOK', ownerUid: 'victim' };
+
+    const writes = await buildExpungeWrites(deps, 'dead');
+
+    expect(writes['inviteIndex/VICTTOK']).toBeUndefined();
+  });
+
+  test('does NOT release a LEGACY bare-uid entry owned by someone else', async () => {
+    const deps = seeded();
+    deps.store['users/dead'].invites.VICTTOK = { redemptionsUsed: 0 };
+    deps.store['inviteIndex/VICTTOK'] = 'victim';
+
+    const writes = await buildExpungeWrites(deps, 'dead');
+
+    expect(writes['inviteIndex/VICTTOK']).toBeUndefined();
   });
 });

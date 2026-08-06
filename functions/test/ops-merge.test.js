@@ -267,6 +267,60 @@ describe('identity and indexes', () => {
     expect(writes['inviteIndex/tokL']).toEqual({ scope: 'personal', ownerPath: 'users/S/invites/tokL', ownerUid: 'S' });
   });
 
+  // Variant A of the codeIndex finding, applied to the invite index. The loser's
+  // `users/{L}/invites` is their own subtree and the rules constrain nothing
+  // about the token KEY, so a holder can plant a VICTIM's live token there. This
+  // repoint runs under the Admin SDK, where the rule forbidding an overwrite of
+  // an existing inviteIndex entry does not apply — so an unconditional repoint
+  // hands the victim's circulating invite link to the survivor account.
+  test('does NOT repoint an inviteIndex entry the loser does not own (Variant A)', async () => {
+    const victimEntry = { scope: 'personal', ownerPath: 'users/victim/invites/VICTTOK', ownerUid: 'victim' };
+    const deps = world();
+    deps.store['users/L'].invites.VICTTOK = { scope: 'personal' }; // loser planted a victim's token
+    deps.store['inviteIndex/VICTTOK'] = victimEntry;               // authoritative: the victim's
+    const { writes } = await merge(deps);
+
+    expect(writes['inviteIndex/VICTTOK']).toBeUndefined();
+    expect(await deps.getVal('inviteIndex/VICTTOK')).toEqual(victimEntry);
+  });
+
+  // A refusal the operator cannot see is not a refusal they approved — the same
+  // reasoning G4 applies to cascades. Skipping the repoint silently leaves the
+  // preview identical to an ordinary merge, so the one signal that this account
+  // is claiming a token it does not own never reaches the person deciding.
+  test('the refused repoint is reported as a conflict, not skipped silently', async () => {
+    const deps = world();
+    deps.store['users/L'].invites.VICTTOK = { scope: 'personal' };
+    deps.store['inviteIndex/VICTTOK'] = { scope: 'personal', ownerPath: 'users/victim/invites/VICTTOK', ownerUid: 'victim' };
+    const { conflicts } = await merge(deps);
+
+    const raised = conflicts.find((c) => c.kind === 'invite-index-unowned');
+    expect(raised).toBeDefined();
+    expect(raised.path).toBe('inviteIndex/VICTTOK');
+    expect(raised.detail).toContain('victim');
+  });
+
+  // The control: an ordinary merge must stay quiet, or the signal is noise.
+  test('an ordinary token move raises no such conflict', async () => {
+    const deps = world();
+    deps.store['inviteIndex/tokL'] = { scope: 'personal', ownerPath: 'users/L/invites/tokL', ownerUid: 'L' };
+    const { conflicts } = await merge(deps);
+
+    expect(conflicts.some((c) => c.kind === 'invite-index-unowned')).toBe(false);
+  });
+
+  // The control for the guard above. `world()` seeds the loser's invite WITHOUT
+  // an index entry, so an absent entry must still be written — that is the
+  // ordinary merge, and skipping it would strand the moved token. Only a
+  // demonstrated foreign owner refuses.
+  test('still repoints a token whose index entry is absent or the loser own', async () => {
+    const deps = world();
+    deps.store['inviteIndex/tokL'] = { scope: 'personal', ownerPath: 'users/L/invites/tokL', ownerUid: 'L' };
+    const { writes } = await merge(deps);
+
+    expect(writes['inviteIndex/tokL']).toEqual({ scope: 'personal', ownerPath: 'users/S/invites/tokL', ownerUid: 'S' });
+  });
+
   test('lastSeen takes the max of the two accounts', async () => {
     const { writes } = await merge(world());
     expect(writes['users/S/presence/lastSeen']).toBe(9000);

@@ -121,9 +121,26 @@ export async function setStatus(userId: string, status: string, availableUntil: 
 }
 
 // Look up a userId by code. Returns userId string or null.
+//
+// The index is cross-checked against the account it names. `codeIndex/{code}`
+// is a global table whose write rule used to check only the INCOMING value, so
+// any signed-in account could repoint a live entry at itself and inherit every
+// later "add person" for that code. The rule now refuses an overwrite, but it
+// cannot un-hijack an entry taken over before it shipped — and this function is
+// the sole consumer, so the second half of the fix belongs here.
+//
+// Fails OPEN when the account advertises no code at all: only a DEMONSTRATED
+// disagreement refuses. A codeless account is already unfollowable (the G6
+// referent rule in database.rules.json), so refusing here would buy nothing and
+// would turn an unreadable presence node into a bogus "code not found".
 export async function lookupCode(code: string): Promise<string | null> {
-  const snap = await get(ref(db, `codeIndex/${code.toUpperCase()}`));
-  return snap.exists() ? snap.val() : null;
+  const wanted = code.toUpperCase();
+  const snap = await get(ref(db, `codeIndex/${wanted}`));
+  if (!snap.exists()) return null;
+  const userId = snap.val();
+  const advertised = await get(ref(db, `users/${userId}/presence/code`));
+  if (advertised.exists() && String(advertised.val()).toUpperCase() !== wanted) return null;
+  return userId;
 }
 
 // Subscribe to a user's presence subtree in real-time. Returns unsubscribe fn.

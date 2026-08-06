@@ -29,6 +29,25 @@ test('codeIndex: can point a code at your own uid only', async () => {
   await assertSucceeds(dbAs(env, 'u3').ref('codeIndex/QQQ').get());
 });
 
+// The write rule checked only the INCOMING value, never the existing one, so
+// "point it at your own uid" also permitted pointing SOMEONE ELSE'S live entry
+// at your own uid. codeIndex/{code} is what lookupCode resolves a typed share
+// code to (js/db/social.ts), so taking one over redirects every later "add
+// person" for that code to the attacker — and the victim cannot take it back:
+// rotateCode's release of the old code needs `data.val() === auth.uid`, which
+// is now false, and the failure is swallowed (js/db/social.ts:449).
+test('codeIndex: cannot overwrite an entry another account already owns', async () => {
+  await seed(env, (db) => db.ref('codeIndex/VICT').set('victim'));
+  await assertFails(dbAs(env, 'attacker').ref('codeIndex/VICT').set('attacker'));
+});
+
+// The control for the rule above: tightening it must not break re-asserting a
+// claim you already hold, which the rotate/retry paths do.
+test('codeIndex: re-asserting your own existing claim is still allowed', async () => {
+  await seed(env, (db) => db.ref('codeIndex/MINE').set('u1'));
+  await assertSucceeds(dbAs(env, 'u1').ref('codeIndex/MINE').set('u1'));
+});
+
 test('groupIdIndex: first-writer-wins claim', async () => {
   await assertSucceeds(dbAs(env, 'u1').ref('groupIdIndex/G9').set(true));
   await assertFails(dbAs(env, 'u2').ref('groupIdIndex/G9').set(true)); // already claimed

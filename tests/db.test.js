@@ -18,7 +18,7 @@ const {
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
   writeKnock, getKnocks, watchKnocksAdded, clearKnock,
   removeFollower, registerAsFollower, watchRevocations, watchFollowerNames,
-  setFollowingEntry, setFollowingEntryClearingRevocation, followeeExists,
+  setFollowingEntry, setFollowingEntryClearingRevocation, followeeExists, lookupCode,
 } = require('../js/db');
 const fs = require('fs');
 const path = require('path');
@@ -1193,5 +1193,53 @@ describe('location db primitives', () => {
       'locations/me': null,
       'locationCells/G1/me': null,
     });
+  });
+});
+
+// codeIndex/{code} is a global lookup table, and its write rule used to permit
+// pointing an entry that already belonged to someone else at your own uid. The
+// rules are the fix at the source, but they do NOT clean up an entry that was
+// already hijacked before they shipped — and `lookupCode` trusted the index
+// absolutely, so a stale takeover keeps redirecting "add person" forever.
+// Resolve the account, then confirm it actually advertises the code.
+describe('lookupCode cross-checks the index against the account it names', () => {
+  // mockReset, not jest.clearAllMocks: clearAllMocks leaves queued
+  // mockResolvedValueOnce implementations in place (see the note at the top of
+  // this file), so an unconsumed queue entry leaks into the next test and the
+  // suite silently becomes order-dependent.
+  beforeEach(() => { get.mockReset(); });
+
+  test('returns the uid when the account really advertises that code', async () => {
+    get
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'realUid' })
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'VICT01' });
+
+    expect(await lookupCode('VICT01')).toBe('realUid');
+  });
+
+  test('returns null when the resolved account advertises a DIFFERENT code', async () => {
+    get
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'attackerUid' })
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'ATCK99' });
+
+    expect(await lookupCode('VICT01')).toBeNull();
+  });
+
+  test('an absent index entry still resolves to null, as before', async () => {
+    get.mockResolvedValueOnce({ exists: () => false, val: () => null });
+
+    expect(await lookupCode('NOSUCH')).toBeNull();
+  });
+
+  // Fail OPEN when the account's presence cannot be read: a codeless account is
+  // already unfollowable (the G6 referent rule), and refusing here would turn an
+  // unreadable presence node into a silent "code not found" for a legitimate
+  // contact. Only a DEMONSTRATED disagreement refuses.
+  test('resolves when the account has no presence code to disagree with', async () => {
+    get
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'realUid' })
+      .mockResolvedValueOnce({ exists: () => false, val: () => null });
+
+    expect(await lookupCode('VICT01')).toBe('realUid');
   });
 });
