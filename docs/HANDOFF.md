@@ -97,11 +97,25 @@ half is the more useful record:
   committing `dev`'s tree onto it, so the range resolved to the real 80-file
   delta. That scaffolding was deleted; the technique is the reusable part.
 
-**Verification boundary for both closures: jest + the rules emulator. NOTHING
-RAN LIVE.** G11's takeover is OBSERVED on the emulator; its exploit chain was
-traced through source, never executed. G12 is jest-only, and the new merge
-conflict has never been RENDERED — `panel.html` has no DOM harness. No session
-container has ever held a service-account credential.
+⚠️ **UPDATED 2026-08-06 — THIS BOUNDARY HAS MOVED. Both closures were run
+against the dev project; see `docs/smoke-test-2026-08-06-g11-g12.md`.** What it
+changed, and what it did not:
+
+- **G11 is OFF jest-and-emulator-only, both halves.** The rule was driven with
+  four REST probes (two of them controls) and the `lookupCode` cross-check in the
+  browser, guard and control. Its **pre-fix takeover is still not observed** —
+  the repoint is now refused, so the chain was watched dying at its second step,
+  not seen working. That half stays traced-through-source.
+- **G12 is PARTLY off it: one sink of four.** `buildMergePlan`'s repoint passed
+  with a guard and two controls, and **the merge conflict HAS now been RENDERED**
+  — the `invite-index-unowned` line appeared in the panel preview, which the
+  previous wording said had never happened. Sinks 1–3 (`graduateAccountData`,
+  both `buildExpungeWrites` releases) are **still jest-only**: they sit behind
+  `requireTelegramUser`, which verifies an HMAC over the bot token, so no
+  Firebase-auth route reaches them.
+
+**Still true:** no session container has ever held a service-account credential.
+Everything above was REPORTED by the operator, not observed by a session.
 
 **What the three closures shipped** (full entries, including what each
 deliberately does not claim, in `docs/operator-panel-followups.md`):
