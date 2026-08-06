@@ -12,6 +12,7 @@ import { formatDistancePrecise } from '../shared/geo.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
   setFollowing, getFollowerName, setFollowerName,
+  hasSeenServerFollowing, markServerFollowingSeen,
 } from './store.js';
 import {
   isHintSeen, markHintSeen,
@@ -1055,7 +1056,16 @@ function createFollowerOnlyRow(follower: FollowerEntry, myUserId: string) {
 function syncFollowingFromServer(myUserId: string, serverFollowing: { userId: string; code: string; label: string }[]) {
   const localFollowing = getFollowing();
 
-  if (serverFollowing.length === 0 && localFollowing.length > 0) {
+  // Any server list with entries in it proves this device is past the migration.
+  if (serverFollowing.length > 0) markServerFollowingSeen(myUserId);
+
+  // The migration push-up, gated: an empty server list means "this device never
+  // synced" only for a device that has never seen one. For any other device it
+  // means the server deleted those entries — a purge, merge or graduation of the
+  // last followee — and republishing them writes cross-user residue naming a uid
+  // that no longer exists, which nothing will ever clean up (G6). The rules
+  // refuse that write regardless; this stops issuing it and prunes the ghost row.
+  if (serverFollowing.length === 0 && localFollowing.length > 0 && !hasSeenServerFollowing(myUserId)) {
     for (const entry of localFollowing) {
       setFollowingEntry(myUserId, entry.userId, entry.code, entry.label ?? '').catch(() => {});
     }

@@ -18,7 +18,10 @@ const {
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
   writeKnock, getKnocks, watchKnocksAdded, clearKnock,
   removeFollower, registerAsFollower, watchRevocations, watchFollowerNames,
+  setFollowingEntry, setFollowingEntryClearingRevocation, followeeExists, lookupCode,
 } = require('../js/db');
+const fs = require('fs');
+const path = require('path');
 
 jest.mock('firebase/database', () => ({
   ref: jest.fn(() => 'mock-ref'),
@@ -64,6 +67,17 @@ describe('rotateCode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getFollowing.mockReturnValue([]);
+    // Default: every followee still exists. Without this the G9 filter's
+    // fail-open catch would swallow an unmocked get() and the pre-existing
+    // multi-path test would pass for the wrong reason — proving the catch
+    // works, not that a live followee is carried.
+    get.mockResolvedValue({ exists: () => true });
+  });
+
+  // jest.clearAllMocks() does NOT clear mockResolvedValue implementations, so
+  // without this the default above leaks into every later describe in this file.
+  afterEach(() => {
+    get.mockReset();
   });
 
   test('happy path: reserves new code, updates user record, releases old code, returns new code', async () => {
@@ -125,6 +139,100 @@ describe('rotateCode', () => {
 
     await expect(rotateCode('user-1', 'OLD123')).rejects.toThrow('network error');
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  test('G9: a followee whose presence/code is gone is left out of the fan-out', async () => {
+    getFollowing.mockReturnValue([
+      { userId: 'live-A', code: 'CODEA1', label: 'Alice' },
+      { userId: 'ghost-B', code: 'CODEB2', label: 'Bob' },
+    ]);
+    // One get() per followee, issued in getFollowing() order: .map runs its
+    // callbacks in order, each calls followeeExists synchronously, and
+    // followeeExists calls get() before its first await — so the queued
+    // ...Once values line up with the array.
+    get
+      .mockResolvedValueOnce({ exists: () => true })
+      .mockResolvedValueOnce({ exists: () => false });
+    generateCode.mockReturnValue('NEW456');
+    runTransaction.mockResolvedValue({ committed: true });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    await rotateCode('user-1', 'OLD123');
+
+    // ghost-B's mirror would be residue under a uid that no longer exists —
+    // in that account's OWN subtree, so crossRefRenderers never enumerates it
+    // and nothing ever sweeps it (G9).
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'users/user-1/presence/code': 'NEW456',
+      'users/live-A/followers/user-1': 'NEW456',
+    });
+    // The predicate is the G6 rules guard's own: presence/code, not users/{T}.
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/ghost-B/presence/code');
+  });
+
+  test('G9: an inconclusive existence read keeps the followee in (fail open)', async () => {
+    getFollowing.mockReturnValue([{ userId: 'followee-A', code: 'CODEA1', label: 'Alice' }]);
+    get.mockRejectedValueOnce(new Error('network error'));
+    generateCode.mockReturnValue('NEW456');
+    runTransaction.mockResolvedValue({ committed: true });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    // Dropping a LIVE followee strands their mirror on the old code and
+    // silently breaks a real contact, with nothing to retry it. Writing one
+    // ghost row is no worse than the behaviour before this filter existed.
+    const result = await rotateCode('user-1', 'OLD123');
+
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'users/user-1/presence/code': 'NEW456',
+      'users/followee-A/followers/user-1': 'NEW456',
+    });
+    expect(result).toBe('NEW456');
+  });
+
+  test('G9: no followees issues no existence read', async () => {
+    getFollowing.mockReturnValue([]);
+    generateCode.mockReturnValue('NEW456');
+    runTransaction.mockResolvedValue({ committed: true });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    await rotateCode('user-1', 'OLD123');
+
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  test('G9: the existence reads resolve before the code reservation', async () => {
+    getFollowing.mockReturnValue([{ userId: 'followee-A', code: 'CODEA1', label: 'Alice' }]);
+    const order = [];
+    // 'begin'/'end' around an awaited tick rather than comparing
+    // invocationCallOrder: invocation order alone stays green under an
+    // `await Promise.all([<the filter>, <the reservation>])` refactor, which
+    // violates the placement rule it is here to pin. This pins RESOLUTION.
+    get.mockImplementationOnce(async () => {
+      order.push('get:begin');
+      await Promise.resolve();
+      order.push('get:end');
+      return { exists: () => true };
+    });
+    generateCode.mockReturnValue('NEW456');
+    // One-shot: the reservation loop exits on the first committed result, and a
+    // persistent mockImplementation would survive jest.clearAllMocks() into
+    // every later describe in this file.
+    runTransaction.mockImplementationOnce(async () => {
+      order.push('runTransaction');
+      return { committed: true };
+    });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    await rotateCode('user-1', 'OLD123');
+
+    // Placement is load-bearing: reads between the codeIndex reservation and
+    // the publish would widen the window in which a crash orphans a reserved
+    // code.
+    expect(order).toEqual(['get:begin', 'get:end', 'runTransaction']);
   });
 });
 
@@ -695,6 +803,142 @@ describe('watchFollowerNames', () => {
   });
 });
 
+// M10: the G6 rules guard (.validate on userPrefs/$uid/following/$followee)
+// is only worth anything if it sits on the path the client actually writes.
+// tests/rules/g6-following-referent.test.js types that path by HAND, so a
+// refactor of the template below would leave the guard validating a path
+// nothing writes — rules suite still green, nobody told. This is the jest half
+// that ties the two together: if it goes red, the rules suite's hand-typed
+// path is stale and must move with it.
+describe('setFollowingEntry — the path the G6 rules guard validates', () => {
+  test('writes userPrefs/{me}/following/{followee}, the exact node the guard covers', async () => {
+    set.mockResolvedValue();
+    ref.mockClear();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'userPrefs/meUid/following/followeeUid');
+  });
+
+  test('writes { code, label } — the shape the guard\'s $field/$sub rules bound', async () => {
+    set.mockResolvedValue();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(set).toHaveBeenCalledWith(expect.anything(), { code: 'ABC123', label: 'Bea' });
+  });
+
+  test('a null label becomes an empty string, never a missing key', async () => {
+    // The guard validates the written data; an undefined label would drop the
+    // key and change the node's shape under the same .validate.
+    set.mockResolvedValue();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', null);
+    expect(set).toHaveBeenCalledWith(expect.anything(), { code: 'ABC123', label: '' });
+  });
+});
+
+// M12: the G6 referential predicate is written TWICE — once as the rules'
+// `.validate` and once as followeeExists' read — and until this guard nothing
+// tied them. Change the rules to key on a different node and the client keeps
+// probing the old one, with the rules suite, the jest suite and both typechecks
+// green. It un-mirrors for every client caller at once: rotateCode's G9 filter
+// and js/followRequests.ts's I1 check both route through followeeExists.
+//
+// Same shape as M10 one layer over — M10 tied the guarded PATH to what the
+// client writes and left the guarded PREDICATE untied. The rules file cannot
+// import JS, so the tie is derived FROM the rules file here, the way
+// tests/name-cap-invariant.test.js pins the display-name cap.
+describe('followeeExists — the predicate the G6 rules guard enforces', () => {
+  const RULES = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'database.rules.json'), 'utf8'),
+  );
+  const FOLLOWING = RULES.rules.userPrefs.$uid.following.$followee;
+
+  /**
+   * Turn `root.child('users').child($followee).child('presence').child('code')
+   * .exists()` into `users/{uid}/presence/code`.
+   *
+   * Deliberately strict: anything that is not that exact shape throws rather
+   * than returning a best guess. A predicate rewritten to `hasChild()`, or one
+   * that grew a second clause, is a DELIBERATE change to what the guard means,
+   * and it must come here and decide what the client's counterpart should be —
+   * not slip past a lenient parser.
+   */
+  function predicatePath(validate, uid) {
+    const shape = /^root(?:\.child\((?:'[^']+'|\$[A-Za-z]+)\))+\.exists\(\)$/;
+    if (!shape.test(validate)) {
+      throw new Error(
+        `the G6 predicate is no longer a plain root.child(...).exists() chain, so this guard `
+        + `cannot derive the path the client must probe. Read it and update followeeExists `
+        + `(js/db/social.ts) and this test together — M12. Predicate: ${validate}`,
+      );
+    }
+    return [...validate.matchAll(/\.child\((?:'([^']+)'|\$([A-Za-z]+))\)/g)]
+      .map(([, literal, placeholder]) => (literal !== undefined ? literal : (placeholder === 'followee' ? uid : `$${placeholder}`)))
+      .join('/');
+  }
+
+  test('reads exactly the node database.rules.json requires to exist', async () => {
+    get.mockResolvedValueOnce({ exists: () => true });
+    ref.mockClear();
+    await followeeExists('followeeUid');
+    expect(ref).toHaveBeenCalledWith(
+      expect.anything(),
+      predicatePath(FOLLOWING['.validate'], 'followeeUid'),
+    );
+  });
+
+  // The rules hold the predicate twice themselves — once on the entry and once
+  // on $field — so a half-applied edit would leave the two levels disagreeing
+  // and this test's first case still passing.
+  test('both copies inside the rules file say the same thing', () => {
+    expect(FOLLOWING.$field['.validate']).toBe(FOLLOWING['.validate']);
+  });
+
+  // The parser is the load-bearing part: a lenient one would keep passing
+  // through exactly the rewrite that should stop it.
+  test('a predicate that is not a plain existence chain fails loudly', () => {
+    expect(() => predicatePath("root.child('users').child($followee).hasChild('presence')", 'x'))
+      .toThrow(/no longer a plain root\.child/);
+  });
+});
+
+// M11: the redemption path used to clear revocations/{me}/{creator} and then
+// write the following entry as two sequential awaits. The G6 rules guard can
+// refuse the second, and by then the first had already landed — dropping the
+// key the redeemer's revocation watcher uses to prune a stale server-side
+// following/{creator} entry. Folding both into ONE multi-path update makes the
+// refusal undo the clear too, because RTDB rejects the whole update.
+describe('setFollowingEntryClearingRevocation — M11: one atomic write', () => {
+  test('clears the revocation and writes the following entry in a SINGLE update', async () => {
+    update.mockResolvedValue();
+    update.mockClear();
+    await setFollowingEntryClearingRevocation('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith(expect.anything(), {
+      'revocations/meUid/followeeUid': null,
+      'userPrefs/meUid/following/followeeUid': { code: 'ABC123', label: 'Bea' },
+    });
+  });
+
+  test('a refused update leaves the revocation clear undone — no separate remove/set', async () => {
+    // The whole point of M11. If the two were still separate writes, the clear
+    // would survive the refusal and the watcher would lose its prune signal.
+    update.mockRejectedValueOnce(new Error('PERMISSION_DENIED'));
+    remove.mockClear();
+    set.mockClear();
+    await expect(setFollowingEntryClearingRevocation('meUid', 'followeeUid', 'ABC123', 'Bea'))
+      .rejects.toThrow('PERMISSION_DENIED');
+    expect(remove).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  test('a null label becomes an empty string, matching setFollowingEntry', async () => {
+    update.mockResolvedValue();
+    update.mockClear();
+    await setFollowingEntryClearingRevocation('meUid', 'followeeUid', 'ABC123', null);
+    expect(update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      'userPrefs/meUid/following/followeeUid': { code: 'ABC123', label: '' },
+    }));
+  });
+});
+
 describe('registerAsFollower', () => {
   test('writes the followers entry and clears any prior revocations entry, in that order', async () => {
     set.mockResolvedValue();
@@ -949,5 +1193,53 @@ describe('location db primitives', () => {
       'locations/me': null,
       'locationCells/G1/me': null,
     });
+  });
+});
+
+// codeIndex/{code} is a global lookup table, and its write rule used to permit
+// pointing an entry that already belonged to someone else at your own uid. The
+// rules are the fix at the source, but they do NOT clean up an entry that was
+// already hijacked before they shipped — and `lookupCode` trusted the index
+// absolutely, so a stale takeover keeps redirecting "add person" forever.
+// Resolve the account, then confirm it actually advertises the code.
+describe('lookupCode cross-checks the index against the account it names', () => {
+  // mockReset, not jest.clearAllMocks: clearAllMocks leaves queued
+  // mockResolvedValueOnce implementations in place (see the note at the top of
+  // this file), so an unconsumed queue entry leaks into the next test and the
+  // suite silently becomes order-dependent.
+  beforeEach(() => { get.mockReset(); });
+
+  test('returns the uid when the account really advertises that code', async () => {
+    get
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'realUid' })
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'VICT01' });
+
+    expect(await lookupCode('VICT01')).toBe('realUid');
+  });
+
+  test('returns null when the resolved account advertises a DIFFERENT code', async () => {
+    get
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'attackerUid' })
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'ATCK99' });
+
+    expect(await lookupCode('VICT01')).toBeNull();
+  });
+
+  test('an absent index entry still resolves to null, as before', async () => {
+    get.mockResolvedValueOnce({ exists: () => false, val: () => null });
+
+    expect(await lookupCode('NOSUCH')).toBeNull();
+  });
+
+  // Fail OPEN when the account's presence cannot be read: a codeless account is
+  // already unfollowable (the G6 referent rule), and refusing here would turn an
+  // unreadable presence node into a silent "code not found" for a legitimate
+  // contact. Only a DEMONSTRATED disagreement refuses.
+  test('resolves when the account has no presence code to disagree with', async () => {
+    get
+      .mockResolvedValueOnce({ exists: () => true, val: () => 'realUid' })
+      .mockResolvedValueOnce({ exists: () => false, val: () => null });
+
+    expect(await lookupCode('VICT01')).toBe('realUid');
   });
 });

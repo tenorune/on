@@ -21,6 +21,22 @@ export function formatTimeRemaining(ms) {
   return `${hours}h ${minutes}m`;
 }
 
+// A COMPACT, always-two-unit age for dense readouts — the operator panel's
+// account table, where every row is scanned and the columns have to line up.
+// Distinct from formatTimeRemaining above on two counts, both deliberate:
+// it carries a days unit (that formatter tops out in hours, so a fortnight
+// reads "369h"), and it never drops the smaller unit ("1h 0m", not "1h") so a
+// column of them stays the same shape. Sub-minute is "<1m" rather than "0m",
+// which would claim precision that "just now" has not earned.
+/** @param {number} ms @returns {string} */
+export function humanDuration(ms) {
+  const span = Math.max(0, ms);
+  if (span < 60000) return '<1m';
+  if (span < 3600000) return `${Math.floor(span / 60000)}m`;
+  if (span < 86400000) return `${Math.floor(span / 3600000)}h ${Math.floor((span % 3600000) / 60000)}m`;
+  return `${Math.floor(span / 86400000)}d ${Math.floor((span % 86400000) / 3600000)}h`;
+}
+
 const HOUR_WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 /** @param {number} n @returns {string} */
 function hourWord(n) { return HOUR_WORDS[n] ?? String(n); }

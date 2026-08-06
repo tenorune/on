@@ -4,6 +4,11 @@ import {
   overrideAvailable, effectiveAvailable, primaryAvailable, clampName,
   formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy, statusCircle,
 } from '../presence-core.js';
+// Imported from the mirror directly, not through presence-core: that
+// re-export exists for telegram.js and presence consumers, and humanDuration
+// has nothing to do with presence — only the operator panel uses it. Asserting
+// the MIRROR here (and shared/ on the web side) is what proves both copies.
+import { humanDuration } from '../_shared/timeFormat.js';
 import vectors from '../../test-fixtures/time-format-vectors.json' with { type: 'json' };
 
 const NOW = 1_000_000;
@@ -149,6 +154,10 @@ describe('time formatters (fixture-pinned, shared with js/utils.js)', () => {
     expect(formatTimeRemaining(ms)).toBe(precise);
     expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
     expect(formatAgeFuzzy(ms)).toBe(age);
+  });
+
+  test.each(vectors)('mirrored humanDuration vectors: %j', ({ ms, compact }) => {
+    expect(humanDuration(ms)).toBe(compact);
   });
 });
 

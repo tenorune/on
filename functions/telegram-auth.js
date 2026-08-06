@@ -4,7 +4,12 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
-import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate } from './telegram-shared.js';
+import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate, inviteIndexOwnership } from './telegram-shared.js';
+// The ONE Telegram mapping write-block, shared with the ops panel. It lives
+// outside ops/ because `functions.ignore` excludes `ops/**` from the deploy
+// archive — importing it from there would ship a function that dies at cold
+// start. See telegram-link-write.js.
+import { buildLinkWrites } from './telegram-link-write.js';
 
 /**
  * The injected I/O surface (built by functions/index.js; tests inject fakes).
@@ -200,28 +205,28 @@ export async function performLink(deps, uid, tgUser, priorMapping) {
     priorMapping === undefined ? deps.getVal(`telegramUsers/${tgId}`) : Promise.resolve(priorMapping),
   ]);
   if (!presence) throw new HttpsError('not-found', 'No account with that phrase.');
-  const chatId = prior?.chatId || tgId;
   const now = deps.now();
   /** @type {Record<string, unknown>} */
   const writes = {};
-  if (prior && prior.uid !== uid) {
-    if (prior.uid === deriveTelegramUid(tgId, deps.uidSecret)) {
-      // Linking retires the temporary Telegram-derived account completely.
-      await expungeDerivedAccount(deps, prior.uid);
-      writes[`telegramByUid/${prior.uid}`] = null;
-    } else {
-      // Direct relink (A→B): account A is a real phrase account — never expunge;
-      // just reset its prefs off telegram (as unlinkTelegramHandler does).
-      writes[`telegramByUid/${prior.uid}`] = null;
-      writes[`userPrefs/${prior.uid}/telegram`] = null;
-      writes[`userPrefs/${prior.uid}/notifyChannel`] = 'push';
-    }
+  // The derived-prior branch is the one thing the shared builder cannot express:
+  // it DESTROYS the prior account rather than resetting it. Handle it here, then
+  // declare that uid `own` so the builder does not also emit the third-party
+  // reset writes for an account that is about to stop existing.
+  /** @type {string[]} */
+  const ownUids = [];
+  if (prior && prior.uid !== uid && prior.uid === deriveTelegramUid(tgId, deps.uidSecret)) {
+    // Linking retires the temporary Telegram-derived account completely.
+    await expungeDerivedAccount(deps, prior.uid);
+    writes[`telegramByUid/${prior.uid}`] = null;
+    ownUids.push(prior.uid);
   }
-  writes[`telegramUsers/${tgId}`] = { uid, chatId, linkedAt: now };
-  writes[`telegramByUid/${uid}`] = { tgId, chatId };
-  writes[`userPrefs/${uid}/telegram/tgId`] = tgId;
-  writes[`userPrefs/${uid}/telegram/linkedAt`] = now;
-  writes[`userPrefs/${uid}/notifyChannel`] = 'telegram';
+  // Everything else — the mapping node, the reverse index, the three prefs keys,
+  // and the direct-relink reset of a real phrase account that held this tgId —
+  // comes from the ONE shared builder (telegram-link-write.js), which the ops
+  // panel calls too. `prior` is handed over rather than re-read: this function
+  // already has it, and its callers may have supplied it explicitly.
+  const link = await buildLinkWrites(deps, { tgId, uid, now, ownUids, prior: prior ?? null });
+  Object.assign(writes, link.writes);
   await rootUpdate(deps, writes);
   return { token: await deps.mintToken(uid) };
 }
@@ -312,28 +317,58 @@ export async function redeemTelegramLinkTokenHandler(request, deps) {
 // reverse-index nulls) into the SAME atomic update, so the whole teardown is
 // one write with no dangling-mapping crash window (unlinkTelegramHandler).
 /**
+ * Build the null-set that expunges `uid` — everything expungeDerivedAccount
+ * writes, without applying it. Split out so the ops panel can PREVIEW a purge
+ * (and render it as a loss report) before anything is destroyed; expunge
+ * itself is now this plus one rootUpdate, so preview and execute cannot drift.
  * @param {TelegramAuthDeps} deps
  * @param {string} uid
  * @param {Record<string, unknown> | null} [extraNulls]
+ * @returns {Promise<Record<string, unknown>>}
  */
-export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
-  const [presence, invites, followers, following, groups] = await Promise.all([
+export async function buildExpungeWrites(deps, uid, extraNulls = null) {
+  const [presence, invites, followers, following, groups, pendingInvites] = await Promise.all([
     deps.getVal(`users/${uid}/presence`),
     deps.getVal(`users/${uid}/invites`),
     deps.getVal(`users/${uid}/followers`),
     deps.getVal(`userPrefs/${uid}/following`),
     deps.getVal(`users/${uid}/groups`),
+    // Read for the enumerator's by-group sweep entries: the gids of groups this
+    // account was invited to but never joined are visible nowhere else.
+    deps.getVal(`pendingInvites/${uid}`),
   ]);
 
   const gids = Object.keys(groups || {});
   const ownerIds = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/ownerId`)));
+  const ownedGids = gids.filter((_, i) => ownerIds[i] === uid);
+  // Read only for the groups about to be deleted. An invite in a group that
+  // SURVIVES still resolves to a live record, so its index entry is not residue
+  // and must not be released.
+  const ownedInvites = await Promise.all(ownedGids.map((gid) => deps.getVal(`groups/${gid}/invites`)));
 
   /** @type {Record<string, unknown>} */
   const nulls = {};
 
-  if (presence?.code) nulls[`codeIndex/${presence.code}`] = null;
+  // codeIndex/{code} is authoritative for who owns a code; presence/code is the
+  // account's OWN field and it can name any [A-Z0-9] string, including another
+  // user's live code. Free the index entry only when it resolves back to this
+  // uid — under the Admin SDK the owner-only delete rule does not apply, so an
+  // unconditional null would let an account expunge a victim's code entry.
+  if (presence?.code && (await deps.getVal(`codeIndex/${presence.code}`)) === uid) {
+    nulls[`codeIndex/${presence.code}`] = null;
+  }
 
+  // Release an index entry only when it resolves back to THIS account. The token
+  // keys come from `users/{uid}/invites`, where the rules constrain nothing about
+  // keys (`database.rules.json:32-38`), so the holder can plant a VICTIM's live
+  // token; this null runs under the Admin SDK, where the rule scoping index
+  // deletion to `ownerUid` does not apply. Unconditional, it kills the victim's
+  // circulating link — and `claimInviteToken` then lets anyone re-claim the
+  // freed token, which turns the deletion into a takeover.
   for (const token of Object.keys(invites || {})) {
+    const entry = await deps.getVal(`inviteIndex/${token}`);
+    const { ownerUid, ownerPath } = inviteIndexOwnership(entry);
+    if (entry != null && ownerUid !== uid && ownerPath !== `users/${uid}/invites/${token}`) continue;
     nulls[`inviteIndex/${token}`] = null;
   }
 
@@ -341,31 +376,76 @@ export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
   // SAME family graduation moves, from one enumerator so the two can't drift.
   // A self-follow renders paths under `users/{uid}`/`userPrefs/{uid}` (nulled
   // wholesale below); rootUpdate drops those as redundant deletes.
-  for (const render of crossRefRenderers({ followers, following, groups })) {
+  for (const render of crossRefRenderers({ followers, following, groups, pendingInvites })) {
     nulls[render(uid)] = null;
   }
 
   // Owned groups are removed WHOLE — the enumerator's per-uid membership/pending
   // nulls under them are redundant and dropped by rootUpdate; membership in
   // groups owned by others stays nulled per-uid by the enumerator above.
-  gids.forEach((gid, i) => {
-    if (ownerIds[i] === uid) {
-      nulls[`groups/${gid}`] = null;
-      nulls[`pendingInvitesByGroup/${gid}`] = null;
+  // The by-group index nodes go with them: a group that no longer exists cannot
+  // have pending invites, and its coarse location cells would otherwise be
+  // stranded under a dead gid — including cells belonging to OTHER members,
+  // which the per-uid enumerator has no way to reach.
+  for (let i = 0; i < ownedGids.length; i += 1) {
+    const gid = ownedGids[i];
+    nulls[`groups/${gid}`] = null;
+    nulls[`pendingInvitesByGroup/${gid}`] = null;
+    nulls[`locationCells/${gid}`] = null;
+    // The id-index entry is a bare `true` existence lock keyed by this same gid
+    // (`js/db/groups.ts:14-21`), claimed transactionally at creation and released
+    // nowhere else. Left behind it outlives the group permanently and burns that
+    // group code: allocation can never reclaim it.
+    nulls[`groupIdIndex/${gid}`] = null;
+    // Every invite issued IN this group, whoever issued it — the records die with
+    // the group, so each index entry would otherwise resolve to nothing. The
+    // per-account `users/{uid}/invites` sweep above cannot reach these: an
+    // invite's `ownerPath` is EITHER `users/{uid}/invites/{token}` OR
+    // `groups/{gid}/invites/{token}` (`js/db/social.ts:38-54`), and only the
+    // first is derivable from the account's own subtree. Same reasoning as the
+    // `locationCells/{gid}` null above, which also takes other members' rows.
+    // Release only an entry that RESOLVES INTO this group. Ownership is the
+    // wrong test here and `ownerUid` must not be used: this sweep exists to
+    // take tokens other members issued, so what makes an entry the group's is
+    // its ownerPath. A group owner has blanket write on `groups/$gid` and the
+    // rules validate nothing about keys under `invites/$token`, so an
+    // unconditional null lets the owner plant a victim's token and free it.
+    for (const token of Object.keys(ownedInvites[i] || {})) {
+      const entry = await deps.getVal(`inviteIndex/${token}`);
+      const { ownerPath } = inviteIndexOwnership(entry);
+      if (entry != null && ownerPath !== `groups/${gid}/invites/${token}`) continue;
+      nulls[`inviteIndex/${token}`] = null;
     }
-  });
+  }
 
   nulls[`users/${uid}`] = null;
   nulls[`userPrefs/${uid}`] = null;
+  // F6c moved push tokens OUT of userPrefs/{uid}/pushTokens to their own
+  // owner-only node, so the wholesale null above stopped reaching them and every
+  // expunge stranded them under a uid with no user record. Not a crossRefRenderers
+  // family: this is the account's own top-level node, not residue on someone
+  // else's. Found by the panel's integrity report (push-tokens-dangling) — the
+  // pre-image residue sweep cannot see it, because a path the purge never wrote
+  // is not in the dump.
+  nulls[`pushTokens/${uid}`] = null;
 
   if (extraNulls) Object.assign(nulls, extraNulls);
 
-  await rootUpdate(deps, nulls);
+  return nulls;
+}
+
+/**
+ * @param {TelegramAuthDeps} deps
+ * @param {string} uid
+ * @param {Record<string, unknown> | null} [extraNulls]
+ */
+export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
+  await rootUpdate(deps, await buildExpungeWrites(deps, uid, extraNulls));
 }
 
 // Inbound/self mailboxes keyed by uid — deleted on expunge, moved on graduation
 // so a rename leaves no orphaned residue behind at the old uid.
-const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pendingInvites', 'revocations'];
+export const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pendingInvites', 'revocations'];
 
 // The cross-user residue a Telegram-derived account leaves on OTHER records:
 // follower/following backrefs (incl. the self-published followerName), shared
@@ -381,10 +461,13 @@ const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pen
 // enumerator knowing. Order matters: it is the graduation walker's original
 // move order, so the consumed-source dedup picks the same winner.
 /**
- * @param {{ followers?: any, following?: any, groups?: any }} lists
+ * `pendingInvites` is the raw `pendingInvites/{uid}` node and only its KEYS are
+ * read, so it is typed as the map it is rather than joining the three `any`
+ * boundary annotations beside it.
+ * @param {{ followers?: any, following?: any, groups?: any, pendingInvites?: Record<string, unknown> | null }} lists
  * @returns {Array<(u: string) => string>}
  */
-function crossRefRenderers({ followers, following, groups }) {
+export function crossRefRenderers({ followers, following, groups, pendingInvites }) {
   const followerIds = Object.keys(followers || {});
   const followingIds = Object.keys(following || {});
   const peers = new Set([...followerIds, ...followingIds]);
@@ -406,6 +489,23 @@ function crossRefRenderers({ followers, following, groups }) {
   }
   for (const box of OWN_MAILBOXES) {
     r.push((u) => `${box}/${u}`);
+  }
+  // Location residue. Appended AFTER the pre-existing families so the order
+  // above — the graduation walker's original move order, which the
+  // consumed-source dedup depends on — is untouched. A location fix is
+  // transient, but it is still uid-keyed cross-user-visible residue: left
+  // behind it is a position for an account that no longer exists (the
+  // `location-dangling` finding), and on graduation it has to follow the
+  // account or the next tick is the only thing that restores it.
+  r.push((u) => `locations/${u}`);
+  for (const gid of gids) r.push((u) => `locationCells/${gid}/${u}`);
+  // Pending invites to groups the account has NOT joined. `groups` cannot see
+  // these — a pending invite is by definition to a group you are not in yet —
+  // so the gids come from the invitee's own mailbox, which is dual-written with
+  // this by-group sweep index (js/db/groups.ts). Moving or deleting one without
+  // the other is exactly the asymmetry integrity.js reports.
+  for (const gid of Object.keys(pendingInvites || {})) {
+    if (!gids.includes(gid)) r.push((u) => `pendingInvitesByGroup/${gid}/${u}`);
   }
   return r;
 }
@@ -440,15 +540,24 @@ function crossRefRenderers({ followers, following, groups }) {
  * @param {Record<string, unknown> | null} [extraWrites]
  */
 export async function graduateAccountData(deps, oldUid, newUid, extraWrites = null) {
-  const [own, prefs] = await Promise.all([
+  const [own, prefs, pendingInvites, pushTokens] = await Promise.all([
     deps.getVal(`users/${oldUid}`),
     deps.getVal(`userPrefs/${oldUid}`),
+    // Same read expunge makes, for the same reason: the by-group sweep entries
+    // for groups this account was invited to but never joined are not derivable
+    // from its own subtree, and a move that leaves them behind strands them at
+    // a uid that is about to stop existing.
+    deps.getVal(`pendingInvites/${oldUid}`),
+    // F6c's node, for F6c's reason: it is no longer inside the userPrefs subtree
+    // copied wholesale below, so without this the devices stay registered to a
+    // uid that is about to stop existing and the graduated account has none.
+    deps.getVal(`pushTokens/${oldUid}`),
   ]);
 
   // Every from→to move pair, from the SAME enumerator expunge nulls (so a new
   // residue family lands in both): render each cross-user path at old→new.
   const gids = Object.keys(own?.groups || {});
-  const moves = crossRefRenderers({ followers: own?.followers, following: prefs?.following, groups: own?.groups })
+  const moves = crossRefRenderers({ followers: own?.followers, following: prefs?.following, groups: own?.groups, pendingInvites })
     .map((render) => [render(oldUid), render(newUid)]);
 
   const [resolvedMoves, owners] = await Promise.all([
@@ -459,15 +568,61 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
   /** @type {Record<string, unknown>} */
   const writes = {};
 
-  // 1. Copy the own subtree verbatim to the new uid.
+  // 1. Copy the own subtree verbatim to the new uid. Push tokens ride along:
+  // same person, same devices, and leaving them behind both strands them and
+  // silently costs the graduated account its notifications.
   if (own) writes[`users/${newUid}`] = own;
   if (prefs) writes[`userPrefs/${newUid}`] = prefs;
+  if (pushTokens) {
+    writes[`pushTokens/${newUid}`] = pushTokens;
+    writes[`pushTokens/${oldUid}`] = null;
+  }
 
   // 2. Repoint indexes that resolve to the account.
   const code = own?.presence?.code;
-  if (code) writes[`codeIndex/${code}`] = newUid;
+  // Repoint the code only when codeIndex confirms it is this account's:
+  // presence/code is the account's own field and could name a victim's live
+  // code, and this write runs under the Admin SDK where the owner-only claim
+  // rule does not apply — so an unconditional repoint would let a graduating
+  // account steal another user's code entry. See graduate-invite-index.test.js
+  // "Variant A hijack".
+  if (code && (await deps.getVal(`codeIndex/${code}`)) === oldUid) {
+    writes[`codeIndex/${code}`] = newUid;
+  }
   for (const token of Object.keys(own?.invites || {})) {
-    writes[`inviteIndex/${token}`] = newUid;
+    // NOT a bare uid — that is `codeIndex`'s shape, one line up, and copying it
+    // here overwrote the record with a string. An invite index entry is
+    // `{ scope, ownerPath, ownerUid }` (`js/db/social.ts:44-54`), validated by
+    // `database.rules.json:56`; the Admin SDK bypasses that validation, so the
+    // malformed write landed and `resolveInvitePreviewHandler`
+    // (`functions/invites.js:27,35`) then read `scope` as undefined and served
+    // no preview. `ownerUid` also gates index DELETION in the rules, so leaving
+    // it at the old uid stranded the token beyond its own owner's reach.
+    // These are the account's OWN invites, so the scope is personal by
+    // construction — group-scoped tokens live under `groups/{gid}/invites`.
+    //
+    // Ownership is checked for the same reason as the codeIndex repoint above,
+    // and it is the same Variant A shape: the token KEY comes from the
+    // account's own `invites` node, where the rules constrain nothing about
+    // keys (`database.rules.json:32-38`), so its holder can plant a VICTIM's
+    // live token. This write runs under the Admin SDK, where the rule that
+    // forbids overwriting an existing inviteIndex entry does not apply — so an
+    // unconditional repoint hands the victim's still-circulating invite link to
+    // this account, and `ownerUid` then locks the victim out of releasing it.
+    // An ABSENT entry is still written: the token was never claimed globally,
+    // so the pointer is new rather than stolen.
+    // A LEGACY entry is a bare uid STRING — the very shape this repoint exists
+    // to have replaced, still present in any project that ran the old code. The
+    // string IS the owner, so read ownership from it rather than seeing an
+    // absent `ownerUid` and stranding a token the account really holds.
+    const existingIndex = await deps.getVal(`inviteIndex/${token}`);
+    const { ownerUid: indexOwner } = inviteIndexOwnership(existingIndex);
+    if (existingIndex != null && indexOwner !== oldUid) continue;
+    writes[`inviteIndex/${token}`] = {
+      scope: 'personal',
+      ownerPath: `users/${newUid}/invites/${token}`,
+      ownerUid: newUid,
+    };
   }
 
   // 3. The moves: write the new key, drop the old — skipping absent sources.

@@ -1,0 +1,333 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>KnockKnock ops</title>
+<style>
+  body { font: 13px/1.4 ui-monospace, Menlo, monospace; margin: 0; padding: 1rem; }
+  #prod { display: none; background: #b00; color: #fff; padding: .5rem; font-weight: bold; }
+  #prod.on { display: block; }
+  #canvas-warning { display: none; background: #fde68a; color: #52340a; padding: .5rem; font-weight: bold; }
+  #canvas-warning.on { display: block; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border-bottom: 1px solid #ccc; padding: .25rem .4rem; text-align: left; white-space: nowrap; }
+  th { cursor: pointer; user-select: none; }
+  tbody tr:hover { background: #f3f3f3; cursor: pointer; }
+  .badge { padding: 0 .3rem; border: 1px solid #999; border-radius: 3px; font-size: 11px; }
+  .inexact { opacity: .6; font-style: italic; }
+  .unknown { color: #a60; font-weight: bold; }
+  #detail, #integrity { margin-top: 1rem; }
+  .error { color: #b00; } .warn { color: #a60; } .info { color: #555; }
+  dialog { max-width: 46rem; font: inherit; }
+  pre { white-space: pre-wrap; max-height: 18rem; overflow: auto; background: #f6f6f6; padding: .5rem; }
+  pre.cascade { background: #fff7ed; border-left: 3px solid #a60; }
+  .footnote { color: #555; font-size: 11px; }
+</style>
+
+<div id="prod">PRODUCTION — every action here is irreversible</div>
+<div id="canvas-warning"></div>
+<header>
+  <strong id="project"></strong>
+  <button id="refresh">refresh</button>
+  <span id="takenAt"></span>
+  <input id="filter" placeholder="filter uid / code">
+  <button id="tab-users">users</button><button id="tab-integrity">integrity</button>
+</header>
+
+<div id="users">
+  <table><thead><tr>
+    <th data-k="uid">uid</th><th data-k="code">code</th><th data-k="provenance">origin</th>
+    <th data-k="createdAt" title="Firebase Auth record creation time. An expunge clears RTDB but leaves the Auth record, and a re-bootstrapped account reuses it — so this can read days old while the account's data is seconds old (M15).">auth created</th><th data-k="lastSeen">last active</th><th data-k="statusLabel">status</th>
+    <th data-k="contacts">contacts</th><th data-k="groupCount">groups</th><th data-k="canvasCount">canvas</th>
+    <th data-k="pushTokenCount">tokens</th><th data-k="notifyChannel">channel</th><th data-k="locationOptIn">loc</th>
+  </tr></thead><tbody id="rows"></tbody></table>
+  <div id="detail"></div>
+</div>
+<div id="integrity" hidden></div>
+
+<dialog id="preview"><form method="dialog">
+  <div id="preview-body"></div>
+  <label>type the uid to confirm: <input id="confirm-uid"></label>
+  <button id="go" value="go">execute</button><button value="cancel">cancel</button>
+</form></dialog>
+
+<script nonce="__CSP_NONCE__">
+const $ = (id) => document.getElementById(id);
+const api = async (path, body) => {
+  const res = await fetch(path, body ? { method: 'POST', body: JSON.stringify(body) } : undefined);
+  if (res.status === 403) throw new Error(await res.text());
+  const json = await res.json();
+  if (json.error) throw new Error(json.error);
+  // An execute that completed but could not append its audit outcome line is
+  // NOT a failure — the write happened. Say so loudly rather than swallowing it.
+  if (json.auditWarning) alert(json.auditWarning);
+  return json;
+};
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let state = { rows: [], sort: 'lastSeen', dir: -1, nonce: null, uid: null, canvasKeys: { examined: true, count: 0, error: null } };
+// Ages and the status label arrive PREFORMATTED from ops/format.js. This file
+// is served as one static asset with no bundler, so nothing in it can be unit
+// tested — anything with a rule in it belongs on the server side, where it is
+// covered. Raw timestamps still ride along for the column sort.
+
+// "This account has no canvases" and "canvases were not examined" are DIFFERENT
+// facts, and an operator approving a destructive write has to know which one
+// they are looking at. `—` means none; `?` means the shallow canvas key list
+// could not be read, so nothing on this page knows whether a drawing exists.
+const CANVAS_NOT_EXAMINED = 'canvases were not examined';
+function canvasCell(row) {
+  if (!state.canvasKeys.examined) {
+    return `<span class="unknown" title="${esc(CANVAS_NOT_EXAMINED)}">?</span>`;
+  }
+  return row.canvasCount ? String(row.canvasCount) : '—';
+}
+function canvasNote() {
+  return state.canvasKeys.examined
+    ? ''
+    : `<p class="unknown">${esc(CANVAS_NOT_EXAMINED)} — the canvas key list could not be read (${esc(state.canvasKeys.error)}); canvas losses below are unknown, NOT absent.</p>`;
+}
+function renderCanvasBanner() {
+  const banner = $('canvas-warning');
+  banner.className = state.canvasKeys.examined ? '' : 'on';
+  banner.textContent = state.canvasKeys.examined
+    ? ''
+    : `${CANVAS_NOT_EXAMINED}: ${state.canvasKeys.error} — every canvas figure on this page reads "?" and every purge/link report will say the canvases could not be enumerated.`;
+}
+
+function render() {
+  const q = $('filter').value.toLowerCase();
+  const rows = state.rows
+    .filter((r) => !q || r.uid.toLowerCase().includes(q) || (r.code || '').toLowerCase().includes(q))
+    .sort((a, b) => ((a[state.sort] ?? -Infinity) < (b[state.sort] ?? -Infinity) ? 1 : -1) * state.dir);
+  $('rows').innerHTML = rows.map((r) => `<tr data-uid="${esc(r.uid)}">
+    <td>${esc(r.uid.slice(0, 10))}…</td><td>${esc(r.code || '—')}</td>
+    <td><span class="badge ${r.provenance.exact ? '' : 'inexact'}">${esc(r.provenance.kind)}</span></td>
+    <td>${esc(r.createdAtLabel)}</td><td>${esc(r.lastSeenLabel)}</td>
+    <td${r.statusTitle ? ` class="inexact" title="${esc(r.statusTitle)}"` : ''}>${esc(r.statusLabel)}</td>
+    <td>${r.contacts}</td><td>${r.groupCount}</td><td>${canvasCell(r)}</td>
+    <td>${r.pushTokenCount}</td><td>${esc(r.notifyChannel || '—')}</td><td>${r.locationOptIn ? 'on' : '—'}</td>
+  </tr>`).join('');
+}
+
+async function refresh() {
+  const snap = await api('/api/snapshot');
+  state.rows = snap.rows;
+  state.canvasKeys = snap.canvasKeys;
+  $('project').textContent = snap.project;
+  $('takenAt').textContent = `snapshot ${new Date(snap.takenAt).toLocaleTimeString()}`;
+  $('prod').className = snap.isProd ? 'on' : '';
+  renderCanvasBanner();
+  render();
+}
+
+// plan.writes is the PREVIEW set an operator approves, and a SUPERSET of the
+// wire payload — rootUpdate drops a null already covered by an ancestor null.
+// Never label it "what will be written".
+const pathNote = (plan) => `<p class="footnote">${Object.keys(plan.writes).length} paths in the preview write-set
+  (a superset of the wire payload: rootUpdate drops nulls already covered by an ancestor null).</p>`;
+
+// Cascades are deletions the operation CAUSES without writing them — another
+// member's client reacting to what this write-set destroys (G4). They get their
+// own block, visibly apart from the write-set and the losses, because an
+// operator must not read a prediction about client behaviour as a path this
+// plan writes. Empty is a real answer here ("none predicted"), unlike the
+// canvas list, which can be genuinely unknown.
+const cascadeNote = (plan) => `<p class="footnote">predicted client cascades — NOT in the write-set, and NOT in the
+  pre-image, so a restore cannot replay them:</p>
+  <pre class="cascade">${esc(plan.cascades.join('\n\n') || 'none predicted')}</pre>`;
+
+async function openDetail(uid) {
+  const { detail, nonce, canvasKeys } = await api(`/api/detail?uid=${encodeURIComponent(uid)}`);
+  state = { ...state, nonce, uid, canvasKeys };
+  renderCanvasBanner();
+  const canvases = canvasKeys.examined
+    ? (detail.canvases.map((c) => esc(c.peer)).join(', ') || 'none')
+    : `<span class="unknown">${esc(CANVAS_NOT_EXAMINED)}</span>`;
+  $('detail').innerHTML = `<h3>${esc(uid)}</h3>
+    <p>followers ${detail.followers.length} · following ${detail.following.length} · mutuals ${detail.mutuals.length}</p>
+    <table><tr><th>group</th><th>name in group</th><th>role</th><th>owner</th><th>override</th></tr>
+    ${detail.groups.map((g) => `<tr><td>${esc(g.name || g.gid)}</td><td>${esc(g.displayName || '—')}</td><td>${esc(g.role || '—')}</td><td>${g.isOwner ? 'yes' : '—'}</td><td>${g.hasStatusOverride ? 'yes' : '—'}</td></tr>`).join('')}</table>
+    <p>canvases: ${canvases}</p>
+    <p>tokens: ${detail.pushTokens.map((t) => `${esc(t.token.slice(0, 8))}… ${esc(t.lastSeenLabel)}`).join(' · ') || 'none'} · channel ${esc(detail.notifyChannel || '—')}</p>
+    <p>location: ${detail.location.hasPoint ? `point ${esc(detail.location.fixAgeLabel)} old` : 'off'}${detail.location.cells.map((c) => ` · ${esc(c.gid)} ${esc(c.fixAgeLabel)}`).join('')}</p>
+    <p>telegram: ${detail.telegram ? `tgId ${esc(detail.telegram.tgId)}` : 'none'}</p>
+    <button data-act="purge">purge…</button>
+    <button data-act="merge">merge into…</button>
+    <button data-act="impact">link impact</button>
+    <button data-act="link-merge">link via merge…</button>
+    <button data-act="link-prod">link as production…</button>`;
+}
+
+// `onChange` is how a preview offers a CHOICE that changes the plan: the
+// handler re-derives the body from a fresh preview, so what the operator reads
+// is always what would execute. Cleared for previews that offer none, or a
+// stale handler from a prior dialog would fire against this one.
+function preview(bodyHtml, onGo, onChange) {
+  $('preview-body').innerHTML = bodyHtml;
+  $('preview-body').onchange = onChange
+    ? (e) => onChange(e).catch((err) => alert(String(err)))
+    : null;
+  $('confirm-uid').value = '';
+  $('preview').returnValue = '';
+  $('preview').showModal();
+  $('preview').onclose = () => {
+    if ($('preview').returnValue !== 'go') return;
+    onGo($('confirm-uid').value).catch((e) => alert(String(e)));
+  };
+}
+
+// M8: adoptGroupNames has always been accepted by the server and implemented by
+// merge.js — this page just never sent it, so a group-member collision
+// previewed here always resolved "survivor's record kept" and the loser's
+// per-group display name could not be adopted without POSTing by hand.
+//
+// One tick per colliding group, built from the conflict's own `gid` (the server
+// carries it for exactly this) rather than from a path parsed here. Ticking
+// RE-PREVIEWS: adoption adds a write path and changes the conflict's resolution
+// line, so remembering the tick locally would show one plan and execute
+// another — and the execute would be refused by the server's own
+// preview-to-execute check, which is safe but tells the operator nothing.
+const adoptBlock = (plan, adopt) => {
+  const rows = plan.conflicts.filter((c) => c.kind === 'group-member-collision' && c.gid);
+  if (!rows.length) return '';
+  return `<p class="footnote">per-group display names — tick to adopt the LOSER's name in that group
+    (each tick re-previews, so the plan above always matches what will execute):</p>
+    ${rows.map((c) => `<label><input type="checkbox" data-adopt="${esc(c.gid)}"${adopt.has(c.gid) ? ' checked' : ''}>
+      ${esc(c.detail)} → <strong>${esc(c.resolution)}</strong></label><br>`).join('')}`;
+};
+
+// The same paragraph purge has carried since 2026-08-02, for the routes that
+// gained the revoke with SEC-6. Which account is removed is the only variable:
+// merge removes the loser, "link as production" removes the derived account,
+// and neither touches the session of the one that survives.
+const sessionFootnote = (who) => `<p class="footnote">The ${who}'s session is revoked before the
+  write. That stops a client that is <em>already open</em> from republishing its cache into the
+  nodes this operation clears — it does NOT evict one: an ID token already in hand keeps working
+  until it expires (measured: up to ~1h from when the client last opened).
+  <strong>Close the ${who}'s app before executing.</strong> Nor does it retire the uid — the
+  account returns at the same uid on next open.</p>`;
+
+// The shared body of both merge previews — "merge into…" and "link via merge…"
+// differ only in their heading and the mapping repoint.
+async function mergePreview(uid, survivorUid, { telegramRepoint, heading }) {
+  const adopt = new Set();
+  const load = async () => {
+    const { plan, nonce, canvasKeys } = await api('/api/merge/preview', {
+      loserUid: uid, survivorUid, telegramRepoint, adoptGroupNames: [...adopt],
+    });
+    state.nonce = nonce; state.canvasKeys = canvasKeys; renderCanvasBanner();
+    return `${heading}${canvasNote()}
+      <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
+      <pre>${esc(plan.losses.join('\n') || 'no losses')}</pre>${cascadeNote(plan)}${pathNote(plan)}${adoptBlock(plan, adopt)}
+      ${sessionFootnote('loser')}`;
+  };
+
+  preview(await load(), async (confirmUid) => {
+    const res = await api('/api/merge/execute', {
+      loserUid: uid, survivorUid, telegramRepoint, adoptGroupNames: [...adopt], confirmUid, nonce: state.nonce,
+    });
+    if (res.sessionNote) alert(res.sessionNote);
+    await refresh();
+  }, async (e) => {
+    const gid = e.target?.dataset?.adopt;
+    if (!gid) return;
+    if (e.target.checked) adopt.add(gid); else adopt.delete(gid);
+    $('preview-body').innerHTML = await load();
+  });
+}
+
+$('refresh').onclick = () => refresh().catch((e) => alert(String(e)));
+$('filter').oninput = render;
+$('rows').onclick = (e) => { const tr = e.target.closest('tr'); if (tr) openDetail(tr.dataset.uid).catch((err) => alert(String(err))); };
+document.querySelectorAll('th[data-k]').forEach((th) => {
+  th.onclick = () => { state.dir = state.sort === th.dataset.k ? -state.dir : -1; state.sort = th.dataset.k; render(); };
+});
+$('tab-users').onclick = () => { $('users').hidden = false; $('integrity').hidden = true; };
+$('tab-integrity').onclick = async () => {
+  const { findings } = await api('/api/integrity');
+  $('integrity').innerHTML = findings.length
+    ? findings.map((f) => `<div class="${esc(f.severity)}">${esc(f.severity)} · ${esc(f.check)} · ${esc(f.path || f.uid || '')} — ${esc(f.detail)}</div>`).join('')
+    : '<p>no findings</p>';
+  $('users').hidden = true; $('integrity').hidden = false;
+};
+
+$('detail').onclick = async (e) => {
+  const act = e.target.dataset?.act;
+  if (!act) return;
+  const uid = state.uid;
+  try {
+    if (act === 'purge') {
+      const { plan, nonce, canvasKeys } = await api('/api/purge/preview', { uid });
+      state.nonce = nonce; state.canvasKeys = canvasKeys; renderCanvasBanner();
+      // Purge raises conflicts too since the Telegram mapping teardown started
+      // refusing to delete a mapping the purged account does not own — showing
+      // only losses would hide the name of the account that really holds it.
+      preview(`<h3>purge ${esc(uid)}</h3>${canvasNote()}
+        <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
+        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${cascadeNote(plan)}${pathNote(plan)}
+        <p class="footnote">The account's session is revoked before the write either way. That stops a
+        client that is <em>already open</em> from republishing its cache — it does NOT evict one: an
+        ID token already in hand keeps working until it expires (measured: up to ~1h from when the
+        client last opened). <strong>Close the account's app before executing.</strong></p>
+        <label><input type="checkbox" id="purge-delete-auth"> also delete the Auth record
+        (<strong>irreversible — the pre-image cannot restore it</strong>). Does not retire the uid:
+        the app mints a fresh token on next open and the account returns at the same uid.</label>`,
+      async (confirmUid) => {
+        const deleteAuthRecord = Boolean($('purge-delete-auth')?.checked);
+        const res = await api('/api/purge/execute', {
+          uid, confirmUid, nonce: state.nonce, deleteAuthRecord,
+        });
+        if (res.sessionNote) alert(res.sessionNote);
+        if (res.authWarning) alert(res.authWarning);
+        await refresh();
+      });
+    }
+    if (act === 'merge') {
+      const survivorUid = prompt('survivor uid (the account that SURVIVES)');
+      if (!survivorUid) return;
+      await mergePreview(uid, survivorUid, {
+        telegramRepoint: false,
+        heading: `<h3>merge ${esc(uid)} → ${esc(survivorUid)}</h3>`,
+      });
+    }
+    if (act === 'impact') {
+      const impact = await api('/api/link/impact', { derivedUid: uid });
+      state.canvasKeys = impact.canvasKeys; renderCanvasBanner();
+      const caveat = impact.canvasKeys.examined ? '' : `\n\n(${CANVAS_NOT_EXAMINED})`;
+      alert(`${impact.verdict.toUpperCase()}${caveat}\n\nlosses:\n${impact.losses.join('\n') || 'none'}\n\nkept:\n${impact.keeps.join('\n') || 'none'}`);
+    }
+    // Link via merge: the NON-LOSSY link. Same merge path, plus the mapping
+    // repoint — contacts, groups, per-group names and canvases all transfer.
+    if (act === 'link-merge') {
+      const survivorUid = prompt('phrase-account uid to link this Telegram to (it SURVIVES)');
+      if (!survivorUid) return;
+      await mergePreview(uid, survivorUid, {
+        telegramRepoint: true,
+        heading: `<h3>link ${esc(uid)} → ${esc(survivorUid)} via merge (nothing is lost)</h3>`,
+      });
+    }
+    // Link as production does: expunge-then-link. This DESTROYS the derived
+    // account exactly as performLink would. The plan shown here is the plan
+    // that executes — the impact report alone would hide the relink conflicts.
+    if (act === 'link-prod') {
+      const phraseUid = prompt('phrase-account uid to link this Telegram to');
+      if (!phraseUid) return;
+      const impact = await api('/api/link/impact', { derivedUid: uid });
+      const { plan, nonce, canvasKeys } = await api('/api/link/production/preview', { derivedUid: uid, phraseUid });
+      state.nonce = nonce; state.canvasKeys = canvasKeys; renderCanvasBanner();
+      preview(`<h3>link as production: ${esc(uid)} is DESTROYED</h3>${canvasNote()}
+        <p>impact verdict: <strong>${esc(impact.verdict)}</strong> — use "link via merge" instead whenever this is lossy.</p>
+        <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
+        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${cascadeNote(plan)}${pathNote(plan)}
+        ${sessionFootnote('derived account')}`,
+      async (confirmUid) => {
+        const res = await api('/api/link/production/execute', { derivedUid: uid, phraseUid, confirmUid, nonce: state.nonce });
+        if (res.sessionNote) alert(res.sessionNote);
+        await refresh();
+      });
+    }
+  } catch (err) {
+    alert(String(err));
+  }
+};
+
+refresh().catch((e) => alert(String(e)));
+</script>

@@ -4,7 +4,16 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
-        "notifyChannel": { ".validate": "newData.isString() && (newData.val() === 'push' || newData.val() === 'telegram')" }
+        "notifyChannel": { ".validate": "newData.isString() && (newData.val() === 'push' || newData.val() === 'telegram')" },
+        "following": {
+          "$followee": {
+            ".validate": "root.child('users').child($followee).child('presence').child('code').exists()",
+            "$field": {
+              ".validate": "root.child('users').child($followee).child('presence').child('code').exists()",
+              "$sub": { ".validate": false }
+            }
+          }
+        }
       }
     },
     "users": {
@@ -13,7 +22,7 @@
         ".write": "auth != null && auth.uid === $uid",
         "presence": {
           ".read": "auth != null",
-          "code": { ".validate": "newData.isString() && newData.val().length <= 32" },
+          "code": { ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,32}$/)" },
           "status": { ".validate": "newData.isString() && newData.val().length <= 16" },
           "statusColor": { ".validate": "newData.isString() && newData.val().length <= 64" },
           "paletteKey": { ".validate": "newData.isString() && newData.val().length <= 64" },
@@ -46,7 +55,7 @@
     "codeIndex": {
       "$code": {
         ".read": "auth != null",
-        ".write": "auth != null && ((newData.exists() && newData.val() === auth.uid) || (!newData.exists() && data.val() === auth.uid))"
+        ".write": "auth != null && ((newData.exists() && newData.val() === auth.uid && (!data.exists() || data.val() === auth.uid)) || (!newData.exists() && data.val() === auth.uid))"
       }
     },
     "inviteIndex": {

@@ -121,9 +121,26 @@ export async function setStatus(userId: string, status: string, availableUntil: 
 }
 
 // Look up a userId by code. Returns userId string or null.
+//
+// The index is cross-checked against the account it names. `codeIndex/{code}`
+// is a global table whose write rule used to check only the INCOMING value, so
+// any signed-in account could repoint a live entry at itself and inherit every
+// later "add person" for that code. The rule now refuses an overwrite, but it
+// cannot un-hijack an entry taken over before it shipped — and this function is
+// the sole consumer, so the second half of the fix belongs here.
+//
+// Fails OPEN when the account advertises no code at all: only a DEMONSTRATED
+// disagreement refuses. A codeless account is already unfollowable (the G6
+// referent rule in database.rules.json), so refusing here would buy nothing and
+// would turn an unreadable presence node into a bogus "code not found".
 export async function lookupCode(code: string): Promise<string | null> {
-  const snap = await get(ref(db, `codeIndex/${code.toUpperCase()}`));
-  return snap.exists() ? snap.val() : null;
+  const wanted = code.toUpperCase();
+  const snap = await get(ref(db, `codeIndex/${wanted}`));
+  if (!snap.exists()) return null;
+  const userId = snap.val();
+  const advertised = await get(ref(db, `users/${userId}/presence/code`));
+  if (advertised.exists() && String(advertised.val()).toUpperCase() !== wanted) return null;
+  return userId;
 }
 
 // Subscribe to a user's presence subtree in real-time. Returns unsubscribe fn.
@@ -232,14 +249,37 @@ export async function mergeUserPrefs(userId: string, fields: Record<string, unkn
   await update(ref(db, `userPrefs/${userId}`), fields);
 }
 
+// Drop my own revocation row for a target: revocations/{me}/{target} = true is
+// what removeFollower writes when the target drops me, and js/following.ts's
+// revocation watcher never deletes it — it persists until a re-follow clears it.
+// Extracted (final-review finding 1) because the path now has two callers: this
+// module's registerAsFollower and js/invites.ts's redemption path, which must
+// clear ahead of its own first relationship write. Copying the path family into
+// a second module is the signal to extract it instead.
+//
+// The write lands only in MY OWN mailbox, so clearing it early leaves no residue
+// in the target's subtree even when the relationship write that follows is
+// refused — which is the property G10 exists to protect. It is also idempotent:
+// removing an absent key is a no-op.
+export async function clearRevocation(myUserId: string, targetUserId: string): Promise<void> {
+  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
+}
+
 export async function registerAsFollower(targetUserId: string, myUserId: string, myCode: string, myName?: string | null): Promise<void> {
   // Clear any prior revocation BEFORE writing the followers entry — not in
   // parallel. The receiver's revocation watcher can fire on either write
   // independently; if the followers set echoes before the revocation remove,
   // the auto-unfollow fires on the freshly-established relationship and the new
-  // follow is silently undone. Sequential remove → set ensures the revocation
+  // follow is silently undone. Sequential clear → set ensures the revocation
   // is gone by the time the followers update is observable.
-  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
+  //
+  // The invariant is a property of the ORDERING RELATIVE TO EVERY WRITE THAT
+  // ESTABLISHES THE RELATIONSHIP, not of this function's internals alone: a
+  // caller that writes userPrefs/{me}/following/{target} before calling in here
+  // opens the same window. js/invites.ts's redemption path therefore calls
+  // clearRevocation itself, ahead of setFollowingEntry; this call then finds
+  // nothing left to remove.
+  await clearRevocation(myUserId, targetUserId);
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
   // Publish our display name into a sibling node the target reads, so a follow
   // established without their involvement (invite redemption — no follow-request
@@ -287,6 +327,33 @@ export async function setFollowingEntry(myUserId: string, followeeUserId: string
   await set(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`), { code, label: label ?? '' });
 }
 
+// Start following someone, discarding any stale revocation they left in our
+// mailbox — as ONE atomic multi-path update, not two sequential writes.
+//
+// Both halves are load-bearing and the atomicity is what ties them:
+//  * the clear must not be observable AFTER the following write, or the
+//    redeemer's own revocation watcher (js/following.ts) sees the fresh entry
+//    while revocations/{me}/{followee} still exists and auto-unfollows it —
+//    the invariant registerAsFollower's comment documents;
+//  * the clear must not SURVIVE a refused following write, or a redemption the
+//    G6 rules guard refuses has dropped the very key that watcher uses to prune
+//    a stale following/{followee} entry (M11).
+// Sequencing can satisfy one or the other, never both. One update satisfies
+// both by construction: RTDB applies it whole or not at all, so a refusal on
+// the userPrefs path leaves the revocation key exactly where it was.
+//
+// Deliberately NOT folded into setFollowingEntry itself: a label rename
+// (js/following.ts) and the presence-driven republish both call that, and
+// clearing a revocation there would resurrect a follow the followee ended.
+export async function setFollowingEntryClearingRevocation(
+  myUserId: string, followeeUserId: string, code: string, label?: string | null,
+): Promise<void> {
+  await update(ref(db), {
+    [`revocations/${myUserId}/${followeeUserId}`]: null,
+    [`userPrefs/${myUserId}/following/${followeeUserId}`]: { code, label: label ?? '' },
+  });
+}
+
 export async function removeFollowingEntry(myUserId: string, followeeUserId: string): Promise<void> {
   await remove(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`));
 }
@@ -320,6 +387,26 @@ export async function userExists(userId: string): Promise<boolean> {
   return snap.exists();
 }
 
+// One-time check mirroring the rules guard's own predicate (database.rules.json,
+// userPrefs/$uid/following/$followee's `.validate`): does this account still have
+// a presence/code? Used by initFollowGrants (js/followRequests.ts, G6 finding I1)
+// to tell "the guard will refuse this forever because the target is gone" from an
+// ordinary transient failure, so a permanently-refused grant can be resolved
+// instead of retried on every boot. Throws on network error, same contract as
+// userExists — the caller decides how to treat an inconclusive read.
+//
+// M12: this read and that `.validate` are two hand-written copies of one
+// predicate, and the rules file cannot import JS. What ties them is a test —
+// tests/db.test.js, "followeeExists — the predicate the G6 rules guard
+// enforces" — which DERIVES the node path from database.rules.json and asserts
+// this function probes it. Move either side without the other and that test
+// goes red. Every client caller routes through here (rotateCode's G9 filter,
+// js/followRequests.ts's I1 check), so this is the one place to keep in step.
+export async function followeeExists(userId: string): Promise<boolean> {
+  const snap = await get(ref(db, `users/${userId}/presence/code`));
+  return snap.exists();
+}
+
 // Update lastSeen timestamp without changing status — called on every app open.
 export async function touchLastSeen(userId: string): Promise<void> {
   await update(ref(db, `users/${userId}/presence`), { lastSeen: Date.now() });
@@ -329,6 +416,30 @@ export async function touchLastSeen(userId: string): Promise<void> {
 // Returns the new code string on success. Throws on failure.
 // Old code is deleted LAST so it remains valid if any earlier write fails.
 export async function rotateCode(userId: string, oldCode: string): Promise<string> {
+  // Step 0 (G9): drop followees that no longer exist before building the
+  // fan-out. A cached entry for an account purged, merged or graduated since
+  // the last sync would otherwise get users/{T}/followers/{me} rewritten under
+  // a dead uid — residue in T's OWN subtree, which crossRefRenderers does not
+  // enumerate and nothing ever sweeps. Same predicate as the G6 rules guard,
+  // reached through followeeExists so every client caller asks the same
+  // question. This used to claim the two "cannot drift apart"; the rules file
+  // holds its own hand-written copy, so what stops the drift is the M12 test
+  // over followeeExists, not the sharing of a function on this side.
+  //
+  // Before the reservation on purpose: reads placed between reserving the new
+  // code and publishing it would widen the window in which a crash leaves an
+  // orphan in codeIndex.
+  //
+  // An inconclusive read keeps the entry. Dropping a LIVE followee strands
+  // their mirror on the old code and silently breaks a working contact with
+  // nothing to retry it; including a dead one writes a single row that would
+  // have been written anyway before this filter existed.
+  const checked = await Promise.all(getFollowing().map(async (entry) => ({
+    entry,
+    live: await followeeExists(entry.userId).catch(() => true),
+  })));
+  const liveFollowing = checked.filter((c) => c.live).map((c) => c.entry);
+
   // Step 1: reserve new code (collision-safe)
   let newCode: string, committed: boolean;
   do {
@@ -345,7 +456,7 @@ export async function rotateCode(userId: string, oldCode: string): Promise<strin
   // per followee (#214 R6). If it throws, the new code is orphaned in codeIndex
   // but the old code remains valid — user retries and the orphan is harmless.
   const updates: Record<string, unknown> = { [`users/${userId}/presence/code`]: newCode };
-  for (const entry of getFollowing()) {
+  for (const entry of liveFollowing) {
     updates[`users/${entry.userId}/followers/${userId}`] = newCode;
   }
   await update(ref(db), updates);

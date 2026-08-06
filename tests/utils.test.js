@@ -2,6 +2,7 @@
 // tests/utils.test.js
 const { hexToRgb, resolveDisplayName, distanceFragmentHtml } = require('../js/utils.js');
 import vectors from '../test-fixtures/time-format-vectors.json';
+import { humanDuration } from '../shared/timeFormat.js';
 import { formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy } from '../js/utils.js';
 
 describe('resolveDisplayName', () => {
@@ -56,6 +57,15 @@ describe('time formatters (fixture-pinned, shared with functions/presence-core.j
     expect(formatTimeRemaining(ms)).toBe(precise);
     expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
     expect(formatAgeFuzzy(ms)).toBe(age);
+  });
+
+  // humanDuration is imported from shared/ directly rather than through
+  // js/utils.js: only the operator panel consumes it, and re-exporting it here
+  // would put an unused function into the web bundle's surface. It is still
+  // pinned on both sides — the mirror copy is asserted over the same vectors in
+  // functions/test/presence-core.test.js.
+  test.each(vectors)('shared humanDuration vectors: %j', ({ ms, compact }) => {
+    expect(humanDuration(ms)).toBe(compact);
   });
 });
 

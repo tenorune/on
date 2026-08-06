@@ -25,6 +25,39 @@ export function openAppKeyboard(appUrl) {
   return appUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Open KnockKnock', web_app: { url: appUrl } }]] } } : {};
 }
 
+// Who owns an `inviteIndex/{token}` entry, in the ONE place that knows the two
+// shapes it comes in. Five sinks ask this question — graduation and merge
+// repoint an entry, the per-account and owned-group expunge sweeps release one
+// — and every one of them runs under the Admin SDK, where the rules that scope
+// an index write to its owner do not apply. A charset or shape assumption
+// transcribed into five places is the defect this repo has already paid for
+// three times (see "Why the enumerator rule exists").
+//
+// A MODERN entry is `{ scope, ownerPath, ownerUid }` (js/db/social.ts:44-54).
+// A LEGACY entry is a bare uid STRING — what graduation wrote before it was
+// fixed, and still present in any project that ran that code. The string IS the
+// owner, so reading `ownerUid` off it yields undefined and would strand every
+// legacy token its real owner tries to move or release.
+//
+// Callers compare BOTH fields: `ownerUid` answers "is this account's?", while
+// `ownerPath` answers "does this resolve into the node being destroyed?" — and
+// the owned-group sweep needs the second, because it deliberately releases
+// tokens OTHER members issued.
+/**
+ * @param {unknown} entry
+ * @returns {{ ownerUid: string | null, ownerPath: string | null }}
+ */
+export function inviteIndexOwnership(entry) {
+  if (typeof entry === 'string') return { ownerUid: entry, ownerPath: null };
+  const rec = /** @type {{ ownerUid?: unknown, ownerPath?: unknown } | null} */ (
+    entry && typeof entry === 'object' ? entry : null
+  );
+  return {
+    ownerUid: typeof rec?.ownerUid === 'string' ? rec.ownerUid : null,
+    ownerPath: typeof rec?.ownerPath === 'string' ? rec.ownerPath : null,
+  };
+}
+
 // The ONE way functions/ issues a multi-path root update. Real RTDB rejects
 // an update('/', {...}) where any key path is an ancestor of another — a
 // contract every hand-built write-map here relies on. rootUpdate makes it
@@ -39,6 +72,37 @@ export function openAppKeyboard(appUrl) {
  * @param {Record<string, unknown>} writes
  */
 export async function rootUpdate(deps, writes) {
+  // BEFORE anything else: is each key the path it appears to be?
+  //
+  // A key is NOT parsed as a literal string. The SDK splits it on '/' and
+  // DROPS empty segments, so `a//b`, `/a/b` and `a/b/` all name `a/b` — and
+  // `users//` names the whole `users` node, not one account. The ancestor
+  // check below compared raw strings, so a collapsed key passed it untouched
+  // and was then re-targeted by the SDK to a path the check never considered:
+  // two functions disagreeing about what path a key is (SEC-4 — the systemic
+  // form of the collapse behind the codeIndex and ops-uid items).
+  //
+  // Such a key is REFUSED rather than silently rewritten to its collapsed
+  // form. Rewriting would make this function agree with the SDK — which is all
+  // the disagreement strictly requires — but it would still let
+  // `users/${uid}` built from an empty uid land as a write to the whole
+  // `users` node, with the overlap analysis now nodding along. An RTDB key
+  // cannot be empty, so an empty segment is always a caller bug, and the
+  // fail-closed answer for a bug in a destructive write-set is to send none of
+  // it. (Verified against every caller: the whole functions suite is green
+  // with this refusal in place.)
+  for (const key of Object.keys(writes)) {
+    const path = key.split('/').filter((segment) => segment !== '').join('/');
+    if (path === '') {
+      throw new Error(`rootUpdate: '${key}' names the database ROOT — refusing, an update there replaces everything`);
+    }
+    if (path !== key) {
+      throw new Error(`rootUpdate: '${key}' has an empty segment — the SDK would write '${path}' instead, which is not the path this key names`);
+    }
+  }
+
+  // Every key is now its own path, so the raw-string comparisons below are
+  // right by construction rather than by luck.
   const keys = Object.keys(writes).sort();
   /** @type {Record<string, unknown>} */
   const kept = {};

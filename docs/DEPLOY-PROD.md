@@ -1,9 +1,30 @@
-# Production deployment guide — first prod deploy (functions + presence schema)
+# Production deployment guide
 
-Exhaustive runbook for promoting `dev` to **prod**. This is effectively the
-**first-ever Cloud Functions deploy to prod** — `origin/main` has no
-`functions/index.js` — so it carries first-time GCP/API/IAM setup on top of a
-flag-day RTDB schema migration.
+Exhaustive runbook for promoting `dev` to **prod**.
+
+> ## ⚠️ DATED-STATUS BANNER — read before following any part of this file
+>
+> **This file was written for the FIRST prod deploy and its title said so. That
+> deploy has happened.** Prod exists, `main` reached v2.0.0, and
+> `origin/main` **does** have `functions/index.js`. Several parts are therefore
+> about a world that no longer exists. Verified 2026-08-06 against
+> `origin/main` = `731eed9`:
+>
+> | part | status now |
+> |---|---|
+> | **Part 0** (one-time GCP/API/IAM setup) | **DONE.** `functions/.env.knock-knock-bf4fe` is committed and prod functions are live. **Confirm, do not re-run.** |
+> | **Part 1 step 10** (land the functions region file) | **DONE** — the file is on both `main` and `dev`. |
+> | **Part 1 step 12** (prod RTDB backup) | **STILL DO IT** — but for the reason in Part 4 step 25, not the migration. |
+> | **Part 2 step 14's "expected on the very first deploy"** | Applies **only when a deploy CREATES a new trigger.** A release that changes existing functions creates no Eventarc trigger and cannot hit it. |
+> | **Part 2 steps 15–16** (presence migration + group repair) | **DONE, one-way, do not re-run.** `main` already ships the `presence/` schema. |
+> | **Part 3** (verification) | Written for a first deploy. Steps 17 and 20 assume functions and push have never existed on prod. Adapt. |
+> | **Part 4** (rollback) | **CORRECTED 2026-08-06 — it contained an outage.** Read its banner. |
+>
+> **The generalisation, since this file is now the third place in the repo to
+> record it:** a runbook step written against a precondition does not announce
+> when that precondition expires. Step 24 was correct the day it was written and
+> became destructive without a word changing. Re-derive against the project you
+> actually have, not against the file.
 
 Related: `docs/deploy-reference.md` (command/config table),
 `functions/README-migrate-presence.md` (the migration + repair scripts),
@@ -155,7 +176,7 @@ gcloud iam service-accounts keys create prod-deploy-key.json \
   serves 0.7's local migration/repair scripts.
 - Its `client_email` is the `DEPLOY_SA` used in (d).
 - **It's a live prod credential** — never commit it; delete the local file after
-  setting the secret; rotate if exposed (see step 26).
+  setting the secret; rotate if exposed (see step 27).
 
 **d) Deploy service account roles** (the SA whose JSON is in
 `FIREBASE_SERVICE_ACCOUNT_PROD`). Set its email and grant the deploy roles:
@@ -266,6 +287,32 @@ presence looks stale for users still on the old cached PWA.
 
 13. **Merge `dev` → `main`.** Triggers `deploy-prod.yml`. Approve the `production`
     environment if a reviewer gate prompts.
+
+    🛑 **In a fresh session container this merge is IMPOSSIBLE until you deepen
+    the clone.** The clone is shallow with grafted history, so `dev` and `main`
+    have no reachable common ancestor and `git merge` aborts with
+    **`fatal: refusing to merge unrelated histories`**. Do not reach for
+    `--allow-unrelated-histories`; it would treat every file as added on both
+    sides and produce a garbage merge.
+
+    `git fetch --unshallow origin` fails on proxy auth — but a **targeted deepen
+    succeeds**, which is the part nothing else in this repo recorded:
+    ```bash
+    git fetch --deepen=200 origin main dev
+    git merge-base refs/remotes/origin/main refs/remotes/origin/dev   # must print a sha
+    ```
+    Only after that does the merge behave. Use the temp-branch shape — never
+    check out local `dev`, which is itself a shallow artifact:
+    ```bash
+    git checkout -b tmp refs/remotes/origin/main
+    git merge --no-ff refs/remotes/origin/dev
+    git diff --stat HEAD refs/remotes/origin/dev   # EMPTY ⇒ a pure promotion
+    git push origin HEAD:main
+    ```
+    ⚠️ **Commit counts computed before deepening are wrong in both directions**
+    and cannot be trusted. Use `git diff --name-only` between the two refs
+    instead — a tree comparison is graft-independent and is what tells you which
+    deploy surfaces are actually moving.
 14. **Watch the Actions run.** `test` runs the full web + functions suites;
     `deploy` builds prod and runs
     `firebase deploy --only hosting,database,functions --project <prodId>`. If the
@@ -273,9 +320,11 @@ presence looks stale for users still on the old cached PWA.
     first deploy while service agents finish provisioning), read the error, fix
     the named API/role, and **re-run the job**.
 
-    **Expected on the very first deploy:** the RTDB-triggered functions
+    **Expected when a deploy CREATES a trigger** (the first prod deploy did;
+    a release that only changes existing functions does **not** and cannot hit
+    this): the RTDB-triggered functions
     (`onKnock`, `onCall`, `onAvailability`, `onInvite`, `onFollowRequest`,
-    `onMemberOverride`) can fail with *"Permission denied while using the Eventarc
+    `onMemberWritten`) can fail with *"Permission denied while using the Eventarc
     Service Agent … Retry the deployment in a few minutes"* even though `0.5`'s
     bindings are correct — the Eventarc service-agent IAM grant just hasn't
     propagated yet. `validateRecovery` (a callable, no Eventarc trigger) succeeds
@@ -286,6 +335,14 @@ presence looks stale for users still on the old cached PWA.
     is auto-accepted. Without it, a `--non-interactive` deploy exits 1 on the
     *"No cleanup policy detected"* prompt **even when every function deployed** —
     a misleading red that looks like a deploy failure but isn't.
+🛑 **STEPS 15 AND 16 ARE DONE AND MUST NOT BE RE-RUN.** They are the flag-day
+presence migration, which ran with the first prod deploy — `main` already ships
+the `presence/` schema, so there are no legacy top-level presence fields left to
+move. Step 15 is **one-way**: it deletes the old fields after copying them, so
+re-running it against already-migrated data is at best a no-op and is not worth
+finding out. Kept below as a record of what prod went through, and for the
+shapes step 18 spot-checks.
+
 15. **Run the data migration against prod, immediately after the deploy lands:**
     ```bash
     cd functions
@@ -316,8 +373,13 @@ functions already exist on an *old* trigger path — i.e. dev.)
 ## Part 3 — Verification
 
 17. **Functions exist & region is right:** Console → Functions: confirm `onKnock`,
-    `onCall`, `onAvailability`, `onMemberOverride`, `onInvite`, `onFollowRequest`
+    `onCall`, `onAvailability`, `onMemberWritten`, `onInvite`, `onFollowRequest`
     are listed and their region == `<PROD_REGION>`.
+    ⚠️ **`onMemberWritten` was written here as `onMemberOverride`, which has never
+    existed** — check the name against `functions/index.js`'s exports rather than
+    against this list, which has been wrong once. On a release that adds no
+    entry points, this step confirms nothing was *lost*; it is not evidence the
+    release deployed.
 18. **Data shape:** spot-check a few prod users — `users/{uid}/presence/{status,…}`
     present, legacy top-level presence fields gone, `users/{uid}/groups/{gid}`
     still carries its `lastVisited`.
@@ -339,23 +401,78 @@ functions already exist on an *old* trigger path — i.e. dev.)
 
 ## Part 4 — Rollback
 
+🛑 **READ THIS BEFORE ACTING ON ANYTHING BELOW.** Steps 22–24 were written for
+the *first-ever* prod deploy, when every function was net-new and no rules had
+ever shipped. **Prod has since had a release**, so one of those steps is now an
+outage rather than a rollback and another surface has no step at all. Corrected
+2026-08-06; the original wording is preserved as 24-HISTORICAL because *why it
+went stale* is the reusable part.
+
+**The default rollback for any deploy after the first: redeploy `main` at the
+previous commit.** That restores hosting, rules and functions together, which is
+also how they shipped. Everything below is for when you need one surface alone.
+
 22. **Hosting/client:** Console → Hosting → roll back to the previous release (or
     re-deploy `main` at the prior commit). Instant.
-23. **Data (one-way flag-day).** The migration deletes the old top-level presence
-    fields — restore from the **Part 1 step 12 backup** if needed. Presence is
-    transient and self-rewriting (old clients re-create top-level fields on
-    heartbeat), but `groups` / `revocations` rewrites are not automatic, so the
-    backup is the safety net for those.
-24. **Functions:** since they're net-new to prod, `firebase functions:delete onKnock onCall onAvailability onMemberOverride onInvite onFollowRequest --project <prodId>`
-    returns prod to its pre-deploy (no-notifications) behavior.
+
+23. **RULES — the surface with the widest blast radius, and the one this file
+    used to omit entirely.** Rules bind **every client immediately**, including
+    ones nobody can update, so a bad rules deploy is felt before anything else
+    and is not fixed by a hosting rollback. Roll back by redeploying the prior
+    `database.rules.json`:
+    ```bash
+    git checkout <previous-main-sha> -- database.rules.json
+    npx firebase deploy --only database --project <prodId>
+    ```
+    Rules deploy independently of hosting and functions and take effect at once.
+    ⚠️ Rolling the rules back **re-opens whatever they closed** — if the
+    deploy that shipped them closed a security item, the rollback un-closes it.
+    Prefer rolling forward with a corrected rule when the fault is in one
+    predicate rather than in the whole file.
+
+24. **FUNCTIONS — do NOT use `functions:delete`.** The functions listed in
+    24-HISTORICAL are **live in prod today**; deleting them removes working
+    notification delivery and does not return prod to any prior state. Roll back
+    by redeploying the previous revision:
+    ```bash
+    git checkout <previous-main-sha> -- functions/
+    npx firebase deploy --only functions --project <prodId>
+    ```
+    Or roll back individually with
+    `npx firebase deploy --only functions:<name> --project <prodId>`.
+
+25. **Data.** Restore from the **Part 1 step 12 backup**. ⚠️ Note this is
+    *unrelated* to the flag-day presence migration, which has already run — see
+    the dated-status banner at the top. The reason a pre-deploy backup still
+    matters is the `performLink` → `expungeDerivedAccount` path: those are
+    destructive multi-path writes triggered by ordinary user actions
+    (`unlinkTelegram`, `graduateTelegram`), and no code rollback un-deletes what
+    they removed while the bad build was live.
+
+**24-HISTORICAL — the original step 24, kept as a record, DO NOT RUN:**
+
+> **Functions:** since they're net-new to prod,
+> `firebase functions:delete onKnock onCall onAvailability onMemberOverride onInvite onFollowRequest --project <prodId>`
+> returns prod to its pre-deploy (no-notifications) behavior.
+
+Two things were wrong with it by 2026-08-06, and they failed differently:
+
+- **"since they're net-new to prod" stopped being true** the moment prod had its
+  first functions deploy. The sentence was correct when written and silently
+  became destructive — nothing in the text signals that its precondition expired.
+- **`onMemberOverride` has never existed.** `functions/index.js` exports
+  `onMemberWritten`. The name was wrong on the day it was written, and the same
+  wrong name is in Part 3 step 17. A `functions:delete` naming a function that
+  does not exist fails on that argument, which is the only reason the wrong name
+  is harmless rather than a second outage.
 
 ## Part 5 — Post-deploy
 
-25. Watch Functions logs for `registration-token-not-registered` — expected for
+26. Watch Functions logs for `registration-token-not-registered` — expected for
     stale FCM tokens; the sender prunes them, and the client TTL cull (#157) bounds
     `pushTokens/{uid}` over time.
-26. Delete the local prod service-account JSON; rotate the key if exposed.
-27. Desktop notifications remain under investigation (#156) — not a blocker for
+27. Delete the local prod service-account JSON; rotate the key if exposed.
+28. Desktop notifications remain under investigation (#156) — not a blocker for
     the mobile-verified deploy.
 
 ---

@@ -4,6 +4,7 @@ const {
   getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode,
   getPalette, getPaletteState, setPaletteState,
   getFavorites, setFavorites,
+  hasSeenServerFollowing, markServerFollowingSeen,
 } = require('../js/store');
 
 beforeEach(() => {
@@ -200,6 +201,25 @@ describe('parse memoization', () => {
     localStorage.setItem('statusapp_favorites', JSON.stringify({ not: 'an array' }));
     expect(getFavorites()).toEqual([]);
   });
+});
+
+// --- G6: has this device ever seen a server-side following list? ---
+
+test('hasSeenServerFollowing is false before any server list has been seen', () => {
+  expect(hasSeenServerFollowing('me')).toBe(false);
+});
+
+test('markServerFollowingSeen makes it true for that uid only', () => {
+  markServerFollowingSeen('me');
+  expect(hasSeenServerFollowing('me')).toBe(true);
+  expect(hasSeenServerFollowing('someone-else')).toBe(false);
+});
+
+test('a later uid replaces the stored one — an identity switch re-arms the push-up', () => {
+  markServerFollowingSeen('me');
+  markServerFollowingSeen('other');
+  expect(hasSeenServerFollowing('other')).toBe(true);
+  expect(hasSeenServerFollowing('me')).toBe(false);
 });
 
 // Call-counter tests moved to tests/prefs.test.js — counters now sync via

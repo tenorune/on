@@ -17,6 +17,8 @@ jest.mock('../js/db.js', () => ({
   // Existing exports we may exercise transitively:
   registerAsFollower: jest.fn().mockResolvedValue(undefined),
   setFollowingEntry: jest.fn().mockResolvedValue(undefined),
+  setFollowingEntryClearingRevocation: jest.fn().mockResolvedValue(undefined),
+  clearRevocation: jest.fn().mockResolvedValue(undefined),
   lookupCode: jest.fn(),
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
@@ -228,6 +230,7 @@ describe('redeemPersonalInvite', () => {
     db.incrementInviteRedemptions.mockResolvedValue();
     db.registerAsFollower.mockResolvedValue();
     db.setFollowingEntry.mockResolvedValue();
+    db.setFollowingEntryClearingRevocation.mockResolvedValue();
     db.getCreatorCode.mockResolvedValue('ABC123');
   });
 
@@ -240,7 +243,7 @@ describe('redeemPersonalInvite', () => {
     const result = await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
     expect(result).toEqual({ ok: true, creatorUid: 'creator-uid', creatorCode: 'ABC123', creatorLabel: 'Alex' });
     expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code', undefined);
-    expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', 'Alex');
+    expect(db.setFollowingEntryClearingRevocation).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', 'Alex');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('creator-uid', 'TOKEN');
   });
 
@@ -261,7 +264,7 @@ describe('redeemPersonalInvite', () => {
       revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
     });
     await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
-    expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer', 'creator', 'ABC123', '');
+    expect(db.setFollowingEntryClearingRevocation).toHaveBeenCalledWith('redeemer', 'creator', 'ABC123', '');
   });
 
   test('returns not-found when the inviteIndex has no entry', async () => {
@@ -349,6 +352,96 @@ describe('redeemPersonalInvite', () => {
     const result = await redeemPersonalInvite('T', 'redeemer', 'code', null);
     expect(result.ok).toBe(true);
     expect(result.creatorUid).toBe('creator');
+  });
+
+  test('G10: the refusable follow write runs before the creator-side follower row', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const order = [];
+    // 'begin'/'end' around an awaited tick rather than a single entry marker:
+    // entry order alone stays green under an
+    // `await Promise.all([setFollowingEntry(…), registerAsFollower(…)])`
+    // refactor, which re-opens G10 exactly — registerAsFollower's write would be
+    // issued before the guard's refusal of setFollowingEntry could arrive. The
+    // interleaved marker pins RESOLUTION, so that refactor goes red.
+    // One-shot impls: a persistent mockImplementation survives
+    // jest.clearAllMocks() and leaks into every later test in this file.
+    db.setFollowingEntryClearingRevocation.mockImplementationOnce(async () => {
+      order.push('setFollowingEntry:begin');
+      await Promise.resolve();
+      order.push('setFollowingEntry:end');
+    });
+    db.registerAsFollower.mockImplementationOnce(async () => { order.push('registerAsFollower'); });
+
+    await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
+
+    // setFollowingEntry is the write the G6 rules guard can refuse. It has to
+    // resolve first, or a creator purged after the :201 read keeps a follower
+    // row for someone who is not, and can never become, following them (G10).
+    expect(order).toEqual(['setFollowingEntry:begin', 'setFollowingEntry:end', 'registerAsFollower']);
+  });
+
+  // REPLACES "G10 finding 1: the revocation clear resolves before the following
+  // write" (4780b1f/da8a3a2). That test pinned a SEQUENCE — clearRevocation
+  // resolving before setFollowingEntry — which was the strongest guarantee two
+  // separate writes could offer, and it is what M11 charged for: a refusal left
+  // the clear already applied. The property is now ATOMICITY, which subsumes
+  // the ordering (the watcher cannot observe the entry with the key present if
+  // both land in one update) AND closes M11 (a refusal undoes the clear). The
+  // old assertion cannot stand as written because the redemption path no longer
+  // calls clearRevocation at all; it is replaced, not weakened.
+  test('M11: the revocation clear and the following write go out as ONE call', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+
+    await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
+
+    expect(db.setFollowingEntryClearingRevocation)
+      .toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', 'Alex');
+    // The separate clear is gone from this path. Were it still here, a refused
+    // following write would leave the key cleared — M11 exactly.
+    expect(db.clearRevocation).not.toHaveBeenCalled();
+    expect(db.setFollowingEntry).not.toHaveBeenCalled();
+  });
+
+  test('M11: a refused redemption leaves the revocation key for the watcher to prune', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.setFollowingEntryClearingRevocation.mockRejectedValueOnce(new Error('PERMISSION_DENIED'));
+
+    await expect(redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set()))
+      .rejects.toThrow('PERMISSION_DENIED');
+
+    // Nothing else on the redemption path may clear it behind the refusal —
+    // that key is the redeemer's only signal to prune a stale server-side
+    // following/{creator} entry once their local list resyncs from it.
+    expect(db.clearRevocation).not.toHaveBeenCalled();
+  });
+
+  test('G10: a refused follow writes nothing into the creator subtree and does not bump the counter', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.setFollowingEntryClearingRevocation.mockRejectedValueOnce(new Error('PERMISSION_DENIED'));
+
+    await expect(redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set()))
+      .rejects.toThrow('PERMISSION_DENIED');
+
+    expect(db.registerAsFollower).not.toHaveBeenCalled();
+    // Settles the followups entry's claim that the counter still increments:
+    // incrementInviteRedemptions sits behind the await that throws.
+    expect(db.incrementInviteRedemptions).not.toHaveBeenCalled();
   });
 });
 
@@ -707,7 +800,7 @@ describe('full flow: create → redeem (integration)', () => {
     expect(result.creatorCode).toBe('AAA111');
     expect(result.creatorLabel).toBe('Alice');
     expect(db.registerAsFollower).toHaveBeenCalledWith('user-a', 'user-b', 'BBB222', undefined);
-    expect(db.setFollowingEntry).toHaveBeenCalledWith('user-b', 'user-a', 'AAA111', 'Alice');
+    expect(db.setFollowingEntryClearingRevocation).toHaveBeenCalledWith('user-b', 'user-a', 'AAA111', 'Alice');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('user-a', token);
   });
 });
