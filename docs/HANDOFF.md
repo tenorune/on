@@ -232,9 +232,16 @@ pushes.
 [31107745279](https://github.com/tenorune/on/actions/runs/31107745279).** Its
 `test` job passed in full — `npx jest`, `npm test`, `npm run test:rules`,
 `typecheck`, `typecheck:scripts` — which is an INDEPENDENT green bar on the
-merged tree, run by CI rather than in this container. The `deploy` job was still
-in `Deploy hosting + database rules` when this session ended; **its conclusion is
-NOT recorded here, so check it before assuming the dev project is up to date.**
+merged tree, run by CI rather than in this container. **The run completed
+`success` at 2026-08-06T13:54:04Z**, so the dev project is up to date with
+`5e69125`.
+
+⚠️ **"Deployed" is not "verified", and NOTHING here has been exercised against
+the dev project.** The deploy succeeding means Firebase accepted the rules, the
+hosting bundle and the functions archive — not that G11 or G12 behave correctly
+on live data. No session container has ever held a service-account credential.
+Both remain jest + emulator only; see their entries in
+`docs/operator-panel-followups.md` for exactly what each does and does not claim.
 
 ⚠️ **THAT STEP'S NAME IS MISLEADING AND WILL COST SOMEBODY AN HOUR.** The step is
 called **"Deploy hosting + database rules"**, and the command inside it is
