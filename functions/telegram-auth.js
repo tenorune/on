@@ -580,6 +580,24 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
     // it at the old uid stranded the token beyond its own owner's reach.
     // These are the account's OWN invites, so the scope is personal by
     // construction — group-scoped tokens live under `groups/{gid}/invites`.
+    //
+    // Ownership is checked for the same reason as the codeIndex repoint above,
+    // and it is the same Variant A shape: the token KEY comes from the
+    // account's own `invites` node, where the rules constrain nothing about
+    // keys (`database.rules.json:32-38`), so its holder can plant a VICTIM's
+    // live token. This write runs under the Admin SDK, where the rule that
+    // forbids overwriting an existing inviteIndex entry does not apply — so an
+    // unconditional repoint hands the victim's still-circulating invite link to
+    // this account, and `ownerUid` then locks the victim out of releasing it.
+    // An ABSENT entry is still written: the token was never claimed globally,
+    // so the pointer is new rather than stolen.
+    // A LEGACY entry is a bare uid STRING — the very shape this repoint exists
+    // to have replaced, still present in any project that ran the old code. The
+    // string IS the owner, so read ownership from it rather than seeing an
+    // absent `ownerUid` and stranding a token the account really holds.
+    const existingIndex = await deps.getVal(`inviteIndex/${token}`);
+    const indexOwner = typeof existingIndex === 'string' ? existingIndex : existingIndex?.ownerUid;
+    if (existingIndex != null && indexOwner !== oldUid) continue;
     writes[`inviteIndex/${token}`] = {
       scope: 'personal',
       ownerPath: `users/${newUid}/invites/${token}`,

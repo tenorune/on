@@ -285,6 +285,20 @@ export async function buildMergePlan(deps, opts) {
     // branches on it and serves no preview at all without it, so omitting it kept
     // the token resolving while silently dropping its welcome-screen framing.
     // Personal by construction — these come from the loser's own `invites` node.
+    //
+    // "The loser's own node" is exactly what makes the KEY untrustworthy, which
+    // is the correction the codeIndex guard above already encodes: the rules
+    // constrain nothing about keys under `users/{uid}/invites`, so the loser can
+    // plant a VICTIM's live token, and this repoint runs under the Admin SDK
+    // where the rule forbidding an overwrite does not apply. Repoint only an
+    // entry that is absent (never globally claimed — the ordinary merge, since
+    // the record itself moves either way) or already the loser's.
+    // A legacy entry is a bare uid STRING (the shape old graduation wrote); the
+    // string IS the owner, so ownership is read from it rather than from an
+    // `ownerUid` it does not carry. Same normalization as telegram-auth.js.
+    const existingIndex = await deps.getVal(`inviteIndex/${token}`);
+    const indexOwner = typeof existingIndex === 'string' ? existingIndex : existingIndex?.ownerUid;
+    if (existingIndex != null && indexOwner !== L) continue;
     writes[`inviteIndex/${token}`] = { scope: 'personal', ownerPath: `users/${S}/invites/${token}`, ownerUid: S };
   }
   const loserLastSeen = loser.presence?.lastSeen;
